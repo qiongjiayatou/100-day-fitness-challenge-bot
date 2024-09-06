@@ -1,5 +1,5 @@
 from telebot import TeleBot
-from telebot.types import Message
+from telebot.types import Message, CallbackQuery
 from database import get_connection, release_connection
 from utils import authenticate_user, is_authenticated, register_user, logout_user
 from config import BOT_TOKEN
@@ -14,20 +14,24 @@ def register_handlers(bot: TeleBot):
     @bot.message_handler(commands=['start'])
     def start(message: Message):
         welcome_text = """
-            Welcome to the 100-Day Fitness Challenge Bot! 🏅
+*🏅 Welcome to the 100-Day Fitness Challenge Bot! 🏅*
 
-            This challenge is simple: choose one or more activities (e.g., walk 5,000 steps, do 50 push-ups, hold a 1-minute plank) and do them every day for 100 days straight.
+This challenge is simple:
+_Choose one or more activities (e.g., walk 5,000 steps, do 50 push-ups, hold a 1-minute plank) 
+and do them every day for 100 days straight._
 
-            Rules:
-            • Choose any activity each day—steps, push-ups, squats, planks, anything goes!
-            • No skipping! If you miss a day, the challenge resets to Day 1.
-            • Even if you do fewer reps, it counts as long as you stay active.
-            • Track your progress and stay motivated!
+*Rules:*
+• Choose any activity each day—steps, push-ups, squats, planks, anything goes!
+• No skipping! If you miss a day, the challenge resets to Day 1.
+• Even if you do fewer reps, it counts as long as you stay active.
+• Track your progress and stay motivated!
 
-            To get started, please register with /register <password> or authenticate with /auth <password>
+*To get started:*
+• Register with `/register <password>`
+• Or authenticate with `/auth <password>`
 
-            Let's achieve our fitness goals together! 💪
-        """
+_Let's achieve our fitness goals together! 💪_
+"""
         bot.reply_to(message, welcome_text)
 
     @bot.message_handler(commands=['help'])
@@ -79,7 +83,7 @@ def register_handlers(bot: TeleBot):
             bot.reply_to(message, "An error occurred while logging out.")
 
     @bot.message_handler(commands=['add'])    
-    @is_authenticated
+    @is_authenticated(bot)
     def add_activity(message: Message):
         bot.reply_to(message, "Please enter the activity name:")
         bot.register_next_step_handler(message, process_add_activity_name)
@@ -139,7 +143,7 @@ def register_handlers(bot: TeleBot):
             bot.reply_to(message, f"An error occurred while adding the activity: {str(e)}")
 
     @bot.message_handler(commands=['update'])
-    @is_authenticated
+    @is_authenticated(bot)
     def update_activity(message: Message):
         bot.reply_to(message, "Please enter the activity ID and updated details in the following format:\n"
                               "activity_id, new_activity_name, new_reps_or_duration\n"
@@ -167,7 +171,7 @@ def register_handlers(bot: TeleBot):
             bot.reply_to(message, f"An error occurred while updating the activity: {str(e)}")
 
     @bot.message_handler(commands=['delete'])
-    @is_authenticated
+    @is_authenticated(bot)
     def delete_activity(message: Message):
         bot.reply_to(message, "Please enter the activity ID you want to delete:")
         bot.register_next_step_handler(message, process_delete_activity)
@@ -192,7 +196,7 @@ def register_handlers(bot: TeleBot):
             bot.reply_to(message, f"An error occurred while deleting the activity: {str(e)}")
 
     @bot.message_handler(commands=['list'])
-    @is_authenticated
+    @is_authenticated(bot)
     def list_activities(message: Message):
         telegram_id = message.from_user.id
         
@@ -212,7 +216,7 @@ def register_handlers(bot: TeleBot):
         bot.reply_to(message, response)
 
     @bot.message_handler(commands=['stats'])
-    @is_authenticated
+    @is_authenticated(bot)
     def get_stats(message: Message):
         telegram_id = message.from_user.id
         conn = get_connection()
@@ -278,6 +282,33 @@ def register_handlers(bot: TeleBot):
         except Exception as e:
             print(f"Error in get_stats: {str(e)}")
             bot.reply_to(message, "An error occurred while fetching your statistics. Please try again later.")
+        finally:
+            release_connection(conn)
+
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("daily_check_"))
+    def handle_daily_check(call: CallbackQuery):
+        user_id = call.from_user.id
+        response = call.data.split("_")[-1]
+        
+        conn = get_connection()
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT COUNT(*) FROM activities WHERE telegram_id = %s AND created_at::date = CURRENT_DATE", (user_id,))
+                activities_count = cursor.fetchone()[0]
+                
+                if response == "yes":
+                    if activities_count > 0:
+                        message = "🎉 Great job! Keep up the good work! 💪"
+                    else:
+                        message = "🌟 That's great! Don't forget to log your activities using the /add command. 📝"
+                else:
+                    if activities_count > 0:
+                        message = "👀 It looks like you've already logged some activities today. Keep going! 🏃‍♂️"
+                    else:
+                        message = "😊 No worries! There's still time to get active. Remember, consistency is key! 🔑"
+                
+                bot.answer_callback_query(call.id, "Thanks for your response!")
+                bot.send_message(user_id, message)
         finally:
             release_connection(conn)
 

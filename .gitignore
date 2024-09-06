@@ -2,3 +2,24 @@
 __pycache__/
 *.pyc
 postgres_data/
+# Celery beat schedule file
+celerybeat-schedule
+celerybeat.pid
+
+# Redis dump file
+dump.rdb
+
+# Logs
+*.log
+
+# IDE-specific files
+.vscode/
+.idea/
+
+# Docker-related files
+docker-compose.override.yml
+
+# Temporary files
+*.tmp
+*.swp
+*~

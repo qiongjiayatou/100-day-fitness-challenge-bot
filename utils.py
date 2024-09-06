@@ -39,28 +39,24 @@ def authenticate_user(telegram_id: int, password: str) -> bool:
         release_connection(conn)
     return False
 
-def is_authenticated(func):
-    @wraps(func)
-    def wrapper(message: Message, *args, **kwargs):
-        # The 'bot' attribute is not available on the Message object
-        # We need to pass the bot instance as an argument to the decorated function
-        # Get the bot instance from the global scope
-        from bot_handlers import bot
-        if not bot:
-            raise ValueError("Bot instance not available in the global scope")
-        user_id = message.from_user.id
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT is_authenticated FROM users WHERE telegram_id = %s", (user_id,))
-                result = cur.fetchone()
-                if result and result[0]:
-                    return func(message, *args, **kwargs)
-                else:
-                    bot.reply_to(message, "You need to authenticate first. Use /auth <password>")
-        finally:
-            release_connection(conn)
-    return wrapper
+def is_authenticated(bot):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(message: Message, *args, **kwargs):
+            user_id = message.from_user.id
+            conn = get_connection()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT is_authenticated FROM users WHERE telegram_id = %s", (user_id,))
+                    result = cur.fetchone()
+                    if result and result[0]:
+                        return func(message, *args, **kwargs)
+                    else:
+                        bot.reply_to(message, "You need to authenticate first. Use /auth <password>")
+            finally:
+                release_connection(conn)
+        return wrapper
+    return decorator
 
 def logout_user(telegram_id: int) -> bool:
     conn = get_connection()

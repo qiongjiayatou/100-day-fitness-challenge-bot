@@ -1,5 +1,4 @@
 import telebot
-import schedule
 import time
 from config import BOT_TOKEN
 from bot_handlers import register_handlers

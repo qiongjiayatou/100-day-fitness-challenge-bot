@@ -6,21 +6,22 @@ services:
     container_name: hdays_bot
     depends_on:
       - db
+      - redis
     environment:
       - DB_HOST=db
-      - DB_PORT=5432
+      - DB_PORT=${DB_PORT}
       - DB_NAME=${DB_NAME}
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
       - BOT_TOKEN=${BOT_TOKEN}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
-      - PYTHONUNBUFFERED=1
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - .:/app
     restart: always
     ports:
       - 8443:8443
-    command: python main.py
-    volumes:
-      - .:/app    
+    command: watchmedo auto-restart --patterns="*.py" --recursive -- python /app/main.py
 
   db:
     image: postgres:16
@@ -34,6 +35,52 @@ services:
     restart: always
     ports:
       - 5455:5432
+    user: "1000:1000"
+
+  redis:
+    image: redis:alpine
+    container_name: hdays_redis
+    restart: always
+
+  celery_worker:
+    build: .
+    container_name: hdays_celery_worker
+    depends_on:
+      - db
+      - redis
+    environment:
+      - DB_HOST=db
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - BOT_TOKEN=${BOT_TOKEN}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - .:/app
+    restart: always
+    command: celery -A tasks worker --loglevel=info
+
+  celery_beat:
+    build: .
+    container_name: hdays_celery_beat
+    depends_on:
+      - db
+      - redis
+    environment:
+      - DB_HOST=db
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - BOT_TOKEN=${BOT_TOKEN}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - .:/app
+    restart: always
+    command: celery -A tasks beat --loglevel=info
 
 volumes:
   postgres_data:
