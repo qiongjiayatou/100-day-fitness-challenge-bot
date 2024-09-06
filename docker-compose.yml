@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  bot:
+    build: .
+    container_name: hdays_bot
+    depends_on:
+      - db
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - BOT_TOKEN=${BOT_TOKEN}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - PYTHONUNBUFFERED=1
+    restart: always
+    ports:
+      - 8443:8443
+    command: python main.py
+    volumes:
+      - .:/app    
+
+  db:
+    image: postgres:16
+    container_name: hdays_db
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=${DB_NAME}
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+    restart: always
+    ports:
+      - 5455:5432
+
+volumes:
+  postgres_data:
+    driver: local
