@@ -81,8 +81,8 @@ def send_daily_check():
 app.conf.beat_schedule = {
     'send-daily-check': {
         'task': 'tasks.send_daily_check',
-        # 'schedule': crontab(hour=21, minute=20),  # Run at 8:18 PM Nicosia time (UTC+3)
-        'schedule': crontab(minute='*'),  # Run every minute
+        'schedule': crontab(hour=21, minute=00),  # Run at 8:00 PM Nicosia time (UTC+3)
+        # 'schedule': crontab(minute='*'),  # Run every minute
     },
     'update-streaks': {
         'task': 'tasks.update_streaks',

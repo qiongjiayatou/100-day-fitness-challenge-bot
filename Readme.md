@@ -14,7 +14,7 @@ This is a Telegram bot designed to help users achieve their fitness goals by com
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/your-username/100-day-fitness-challenge-bot.git
+git clone https://github.com/qiongjiayatou/100-day-fitness-challenge-bot.git
 cd 100-day-fitness-challenge-bot
 ```
 

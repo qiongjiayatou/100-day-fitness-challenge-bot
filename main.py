@@ -2,13 +2,12 @@ import telebot
 import time
 from config import BOT_TOKEN
 from bot_handlers import register_handlers
-from database import init_db
-# from utils import authenticate_user
+from database import init_db, migrate_to_user_id
 
 
 def main():
-    init_db()
-
+    # init_db()
+    
     bot = telebot.TeleBot(BOT_TOKEN)
     register_handlers(bot)
     # Start the bot polling

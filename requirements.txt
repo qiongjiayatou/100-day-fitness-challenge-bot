@@ -7,3 +7,5 @@ watchdog
 redis
 celery
 pytest
+pyTelegramBotAPI
+pytz
