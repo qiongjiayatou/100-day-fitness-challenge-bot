@@ -23,11 +23,11 @@ cd 100-day-fitness-challenge-bot
    ```
    BOT_TOKEN=your_telegram_bot_token
    ADMIN_PASSWORD=your_admin_password
-   DB_NAME=your_database_name
-   DB_USER=your_database_user
-   DB_PASSWORD=your_database_password
-   DB_HOST=postgres
-   DB_PORT=5432
+   POSTGRES_DB=your_database_name
+   POSTGRES_USER=your_database_user
+   POSTGRES_PASSWORD=your_database_password
+   POSTGRES_HOST=postgres
+   POSTGRES_PORT=5432
    REDIS_URL=redis://redis:6379/0
    ```
 
