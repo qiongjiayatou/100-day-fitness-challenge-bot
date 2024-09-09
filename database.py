@@ -42,8 +42,9 @@ def init_db():
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS reference_activities (
                     id SERIAL PRIMARY KEY,
-                    user_id BIGINT REFERENCES users(id),
+                    user_id INTEGER REFERENCES users(id),
                     activity_name TEXT NOT NULL,
+                    activity_type VARCHAR(50) NOT NULL,
                     UNIQUE (user_id, activity_name)
                 )
             """)
@@ -52,9 +53,9 @@ def init_db():
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS activities (
                     id SERIAL PRIMARY KEY,
-                    user_id BIGINT REFERENCES users(id),
+                    user_id INTEGER REFERENCES users(id),
                     reference_activity_id INTEGER REFERENCES reference_activities(id),
-                    reps_or_duration VARCHAR(255) NOT NULL,
+                    value BIGINT NOT NULL,
                     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
                 )
             """)

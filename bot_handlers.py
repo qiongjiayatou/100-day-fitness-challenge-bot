@@ -138,15 +138,14 @@ Let's achieve our fitness goals together! 💪
             with conn.cursor() as cursor:
                 cursor.execute("SELECT id FROM users WHERE telegram_id = %s", (telegram_id,))
                 user_id = cursor.fetchone()[0]
-                cursor.execute("SELECT id, activity_name FROM reference_activities WHERE user_id = %s ORDER BY id", (user_id,))
+                cursor.execute("SELECT id, activity_name, activity_type FROM reference_activities WHERE user_id = %s ORDER BY id", (user_id,))
                 activities = cursor.fetchall()
                 
                 if activities:
                     keyboard = types.ReplyKeyboardMarkup(row_width=2, one_time_keyboard=True, resize_keyboard=True)
                     for activity in activities:
-                        keyboard.add(f"{activity[0]}: {activity[1]}")
-                    keyboard.add("Other")
-                    bot.reply_to(message, "Please choose an activity or select 'Other' to enter a new one:", reply_markup=keyboard)
+                        keyboard.add(f"{activity[0]}: {activity[1]} ({activity[2]})")
+                    bot.reply_to(message, "Please choose an activity:", reply_markup=keyboard)
                     bot.register_next_step_handler(message, process_add_activity_choice, activities)
                 else:
                     bot.reply_to(message, "You don't have any reference activities. Please add one first using /addref")
@@ -161,67 +160,44 @@ Let's achieve our fitness goals together! 💪
         
         choice = message.text.strip()
         
-        if choice == "Other":
-            bot.reply_to(message, "Please enter the new activity name (or /exit to cancel):", reply_markup=types.ReplyKeyboardRemove())
-            bot.register_next_step_handler(message, process_add_activity_name)
-        else:
-            try:
-                reference_activity_id = int(choice.split(":")[0])
-                activity_name = next(activity[1] for activity in valid_activities if activity[0] == reference_activity_id)
-                bot.reply_to(message, f"Adding activity: {activity_name}\nPlease enter the reps or duration (e.g., 1 minute 30 seconds, 50 reps):", reply_markup=types.ReplyKeyboardRemove())
-                bot.register_next_step_handler(message, process_add_activity_reps_or_duration, reference_activity_id)
-            except (ValueError, StopIteration):
-                bot.reply_to(message, "Invalid choice. Please select an activity from the list or 'Other'.")
-                return add_activity(message)
-
-    def process_add_activity_name(message: Message):
-        if check_maintenance(message, bot):
-            return
-        if check_exit(message, bot):
-            return
-        
-        activity_name = message.text.strip().lower()
-        telegram_id = message.from_user.id
-        
-        # List of commands to check against
-        commands = ['start', 'help', 'register', 'auth', 'add', 'update', 'delete', 'list', 'stats', 'logout', 'addref', 'listref', 'updateref', 'deleteref', 'exit']
-        
-        # Check if the activity name is a command
-        if activity_name.startswith('/') or activity_name in commands:
-            bot.reply_to(message, "You cannot use a command as an activity name. Please choose a different name.")
-            return add_activity(message)
-
-        # Add the new activity to the reference list
-        conn = get_connection()
         try:
-            with conn.cursor() as cursor:
-                cursor.execute("SELECT id FROM users WHERE telegram_id = %s", (telegram_id,))
-                user_id = cursor.fetchone()[0]
-                cursor.execute(
-                    "INSERT INTO reference_activities (user_id, activity_name) VALUES (%s, %s) RETURNING id",
-                    (user_id, activity_name)
-                )
-                new_reference_id = cursor.fetchone()[0]
-                conn.commit()
-                bot.reply_to(message, f"New activity '{activity_name}' has been added to your reference list.")
-        except Exception as e:
-            bot.reply_to(message, f"An error occurred while adding the new activity: {str(e)}")
+            reference_activity_id = int(choice.split(":")[0])
+            activity = next(activity for activity in valid_activities if activity[0] == reference_activity_id)
+            activity_name, activity_type = activity[1], activity[2]
+            if activity_type == 'time':
+                bot.reply_to(message, f"Adding activity: {activity_name}\nPlease enter the duration in the format HH:MM:SS (e.g., 00:01:30 for 1 minute 30 seconds):", reply_markup=types.ReplyKeyboardRemove())
+            else:
+                bot.reply_to(message, f"Adding activity: {activity_name}\nPlease enter the number of reps:", reply_markup=types.ReplyKeyboardRemove())
+            bot.register_next_step_handler(message, process_add_activity_value, reference_activity_id, activity_type)
+        except (ValueError, StopIteration):
+            bot.reply_to(message, "Invalid choice. Please select an activity from the list.")
             return add_activity(message)
-        finally:
-            release_connection(conn)
 
-        # Proceed to add the activity
-        bot.reply_to(message, f"Adding activity: {activity_name}\nPlease enter the reps or duration (e.g., 1 minute 30 seconds, 50 reps):")
-        bot.register_next_step_handler(message, process_add_activity_reps_or_duration, new_reference_id)
-
-    def process_add_activity_reps_or_duration(message: Message, reference_activity_id):
+    def process_add_activity_value(message: Message, reference_activity_id, activity_type):
         if check_maintenance(message, bot):
             return
         if check_exit(message, bot):
             return
         
-        reps_or_duration = message.text.strip()
+        value_input = message.text.strip()
         telegram_id = message.from_user.id
+        
+        if activity_type == 'time':
+            try:
+                value = parse_time_to_seconds(value_input)
+                if value <= 0:
+                    raise ValueError("Duration must be positive")
+            except ValueError as e:
+                bot.reply_to(message, f"Invalid input: {str(e)}. Please enter a valid time in the format HH:MM:SS (e.g., 00:01:30 for 1 minute 30 seconds).")
+                return add_activity(message)
+        else:  # reps
+            try:
+                value = int(value_input)
+                if value <= 0:
+                    raise ValueError("Number of reps must be positive")
+            except ValueError:
+                bot.reply_to(message, "Invalid input. Please enter a positive integer for reps.")
+                return add_activity(message)
         
         # Get current time in Nicosia
         nicosia_time = datetime.now(NICOSIA_TIMEZONE)
@@ -232,32 +208,52 @@ Let's achieve our fitness goals together! 💪
                 cursor.execute("SELECT id FROM users WHERE telegram_id = %s", (telegram_id,))
                 user_id = cursor.fetchone()[0]
                 cursor.execute(
-                    "INSERT INTO activities (user_id, reference_activity_id, reps_or_duration, created_at) VALUES (%s, %s, %s, %s)",
-                    (user_id, reference_activity_id, reps_or_duration, nicosia_time)
+                    "INSERT INTO activities (user_id, reference_activity_id, value, created_at) VALUES (%s, %s, %s, %s)",
+                    (user_id, reference_activity_id, value, nicosia_time)
                 )
                 conn.commit()
-                bot.reply_to(message, f"Activity added successfully! Recorded at {nicosia_time.strftime('%Y-%m-%d %H:%M:%S')} Nicosia time.")
+                value_str = format_duration(value) if activity_type == 'time' else f"{value} reps"
+                bot.reply_to(message, f"Activity added successfully! Recorded {value_str} at {nicosia_time.strftime('%Y-%m-%d %H:%M:%S')} Nicosia time.")
         except Exception as e:
             bot.reply_to(message, f"An error occurred while adding the activity: {str(e)}")
         finally:
             release_connection(conn)
+
+    def parse_time_to_seconds(time_str):
+        try:
+            hours, minutes, seconds = map(int, time_str.split(':'))
+            total_seconds = hours * 3600 + minutes * 60 + seconds
+            if total_seconds <= 0:
+                raise ValueError("Duration must be positive")
+            return total_seconds
+        except ValueError:
+            raise ValueError("Invalid time format")
+
+    def format_duration(seconds):
+        try:
+            seconds = int(seconds)
+            hours, remainder = divmod(seconds, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+        except ValueError:
+            return "Invalid duration"
 
     @bot.message_handler(commands=['update'])
     @is_authenticated(bot)
     def update_activity(message: Message):
         if check_maintenance(message, bot):
             return
-        bot.reply_to(message, "Please enter the activity ID and updated reps or duration in the following format:\n"
-                              "activity_id, new_reps_or_duration\n"
-                              "For example: 1, 60 reps or 2, 45 minutes")
-        bot.register_next_step_handler(message, process_update_activity)
+        bot.reply_to(message, "Please enter the activity ID you want to update:")
+        bot.register_next_step_handler(message, process_update_activity_id)
 
-    def process_update_activity(message: Message):
+    def process_update_activity_id(message: Message):
         if check_maintenance(message, bot):
             return
+        if check_exit(message, bot):
+            return
+        
         try:
-            activity_id, new_reps_or_duration = map(str.strip, message.text.split(','))
-            activity_id = int(activity_id)
+            activity_id = int(message.text.strip())
             telegram_id = message.from_user.id
             
             conn = get_connection()
@@ -265,8 +261,57 @@ Let's achieve our fitness goals together! 💪
                 with conn.cursor() as cursor:
                     cursor.execute("SELECT id FROM users WHERE telegram_id = %s", (telegram_id,))
                     user_id = cursor.fetchone()[0]
-                    cursor.execute("UPDATE activities SET reps_or_duration = %s WHERE id = %s AND user_id = %s",
-                                (new_reps_or_duration, activity_id, user_id))
+                    
+                    # Get the activity type from reference_activities
+                    cursor.execute("""
+                        SELECT r.activity_type 
+                        FROM activities a 
+                        JOIN reference_activities r ON a.reference_activity_id = r.id 
+                        WHERE a.id = %s AND a.user_id = %s
+                    """, (activity_id, user_id))
+                    result = cursor.fetchone()
+                    if result:
+                        activity_type = result[0]
+                        if activity_type == 'time':
+                            bot.reply_to(message, "Please enter the new duration in the format HH:MM:SS (e.g., 00:01:30 for 1 minute 30 seconds):")
+                        else:
+                            bot.reply_to(message, "Please enter the new number of reps:")
+                        bot.register_next_step_handler(message, process_update_activity_value, activity_id, activity_type)
+                    else:
+                        bot.reply_to(message, "Activity not found or you don't have permission to update it.")
+            finally:
+                release_connection(conn)
+        except ValueError:
+            bot.reply_to(message, "Invalid input. Please enter a valid activity ID (number).")
+        except Exception as e:
+            bot.reply_to(message, f"An error occurred while processing the activity ID: {str(e)}")
+
+    def process_update_activity_value(message: Message, activity_id, activity_type):
+        if check_maintenance(message, bot):
+            return
+        if check_exit(message, bot):
+            return
+        
+        new_value = message.text.strip()
+        telegram_id = message.from_user.id
+        
+        try:
+            if activity_type == 'time':
+                new_value = parse_time_to_seconds(new_value)
+                if new_value <= 0:
+                    raise ValueError("Duration must be positive")
+            else:
+                new_value = int(new_value)
+                if new_value <= 0:
+                    raise ValueError("Number of reps must be positive")
+            
+            conn = get_connection()
+            try:
+                with conn.cursor() as cursor:
+                    cursor.execute("SELECT id FROM users WHERE telegram_id = %s", (telegram_id,))
+                    user_id = cursor.fetchone()[0]
+                    cursor.execute("UPDATE activities SET value = %s WHERE id = %s AND user_id = %s",
+                                (new_value, activity_id, user_id))
                     if cursor.rowcount == 0:
                         bot.reply_to(message, "Activity not found or you don't have permission to update it.")
                     else:
@@ -274,8 +319,12 @@ Let's achieve our fitness goals together! 💪
                         bot.reply_to(message, f"Activity with ID {activity_id} has been updated successfully!")
             finally:
                 release_connection(conn)
-        except ValueError:
-            bot.reply_to(message, "Invalid format. Please use: activity_id, new_reps_or_duration")
+        except ValueError as e:
+            if activity_type == 'time':
+                bot.reply_to(message, f"Invalid input: {str(e)}. Please enter a valid time in the format HH:MM:SS (e.g., 00:01:30 for 1 minute 30 seconds).")
+            else:
+                bot.reply_to(message, "Invalid input. Please enter a positive integer for reps.")
+            bot.register_next_step_handler(message, process_update_activity_value, activity_id, activity_type)
         except Exception as e:
             bot.reply_to(message, f"An error occurred while updating the activity: {str(e)}")
 
@@ -323,9 +372,14 @@ Let's achieve our fitness goals together! 💪
         try:
             with conn.cursor() as cursor:
                 cursor.execute("SELECT id FROM users WHERE telegram_id = %s", (telegram_id,))
-                user_id = cursor.fetchone()[0]
+                user_result = cursor.fetchone()
+                if not user_result:
+                    bot.reply_to(message, "Error: User not found in database.")
+                    return
+                user_id = user_result[0]
+                
                 cursor.execute("""
-                    SELECT a.id, r.activity_name, a.reps_or_duration, a.created_at
+                    SELECT a.id, r.activity_name, a.value, r.activity_type, a.created_at
                     FROM activities a
                     JOIN reference_activities r ON a.reference_activity_id = r.id
                     WHERE a.user_id = %s
@@ -337,13 +391,34 @@ Let's achieve our fitness goals together! 💪
                 if activities:
                     response = "Your recent activities:\n\n"
                     for activity in activities:
-                        response += f"ID: {activity[0]}, Activity: {activity[1]}, Reps/Duration: {activity[2]}, Date: {activity[3].strftime('%Y-%m-%d %H:%M')}\n"
+                        try:
+                            value_str = format_activity_value(activity[2], activity[3])
+                            nicosia_time = activity[4].astimezone(NICOSIA_TIMEZONE)
+                            response += f"ID: {activity[0]}, Activity: {activity[1]}, Value: {value_str}, Date: {nicosia_time.strftime('%Y-%m-%d %H:%M')}\n"
+                        except Exception as e:
+                            response += f"Error formatting activity {activity[0]}: {str(e)}\n"
                 else:
                     response = "You haven't added any activities yet."
                 
                 bot.reply_to(message, response)
+        except Exception as e:
+            error_message = f"An error occurred while fetching your activities: {str(e)}\n"
+            error_message += f"Error type: {type(e).__name__}\n"
+            error_message += f"Error details: {str(e.args)}"
+            bot.reply_to(message, error_message)
+            print(error_message)  # Log the error to the console
         finally:
             release_connection(conn)
+
+    def format_activity_value(value, activity_type):
+        try:
+            value = int(value)
+            if activity_type == 'time':
+                return format_duration(value)
+            else:
+                return f"{value} reps"
+        except ValueError:
+            return f"Error: Invalid value format for {activity_type}"
 
     @bot.message_handler(commands=['stats'])
     @is_authenticated(bot)
@@ -355,17 +430,19 @@ Let's achieve our fitness goals together! 💪
         try:
             with conn.cursor() as cursor:
                 cursor.execute("SELECT id FROM users WHERE telegram_id = %s", (telegram_id,))
-                user_id = cursor.fetchone()[0]
+                user_result = cursor.fetchone()
+                if not user_result:
+                    bot.reply_to(message, "Error: User not found in database.")
+                    return
+                user_id = user_result[0]
                 
                 # Get total activities count
                 cursor.execute("SELECT COUNT(*) FROM activities WHERE user_id = %s", (user_id,))
-                result = cursor.fetchone()
-                total_activities = result[0] if result else 0
+                total_activities = cursor.fetchone()[0]
 
                 # Get unique activities count
                 cursor.execute("SELECT COUNT(DISTINCT reference_activity_id) FROM activities WHERE user_id = %s", (user_id,))
-                result = cursor.fetchone()
-                unique_activities = result[0] if result else 0
+                unique_activities = cursor.fetchone()[0]
 
                 # Get most frequent activity
                 cursor.execute("""
@@ -381,7 +458,7 @@ Let's achieve our fitness goals together! 💪
 
                 # Get all activities with correct Nicosia time
                 cursor.execute("""
-                    SELECT r.activity_name, a.reps_or_duration, a.created_at
+                    SELECT r.activity_name, a.value, r.activity_type, a.created_at
                     FROM activities a
                     JOIN reference_activities r ON a.reference_activity_id = r.id
                     WHERE a.user_id = %s
@@ -393,16 +470,20 @@ Let's achieve our fitness goals together! 💪
                 activity_totals = {}
                 total_reps = 0
                 total_duration = 0
-                for activity_name, reps_or_duration, created_at in activities:
-                    value, unit = parse_reps_or_duration(reps_or_duration)
-                    if activity_name not in activity_totals:
-                        activity_totals[activity_name] = {'reps': 0, 'duration': 0}
-                    if unit == 'reps':
-                        activity_totals[activity_name]['reps'] += value
-                        total_reps += value
-                    else:
-                        activity_totals[activity_name]['duration'] += value
-                        total_duration += value
+                for activity_name, value, activity_type, created_at in activities:
+                    try:
+                        value = int(value)
+                        if activity_type == 'reps':
+                            total_reps += value
+                        else:  # 'time'
+                            total_duration += value
+
+                        if activity_name not in activity_totals:
+                            activity_totals[activity_name] = {'reps': 0, 'time': 0}
+                        activity_totals[activity_name][activity_type] += value
+                    except ValueError as e:
+                        print(f"Error processing activity: {activity_name}, value: {value}, type: {activity_type}")
+                        print(f"Error details: {str(e)}")
 
                 # Format the response
                 stats_message = f"📊 Your Fitness Challenge Statistics:\n\n"
@@ -413,23 +494,35 @@ Let's achieve our fitness goals together! 💪
                 stats_message += f"Total reps across all activities: {total_reps}\n"
                 stats_message += f"Total duration across all activities: {format_duration(total_duration)}\n\n"
                 
-                stats_message += "Activity Totals:\n"
+                stats_message += "Activity Statistics:\n"
                 for activity, totals in activity_totals.items():
                     stats_message += f"{activity}:\n"
                     if totals['reps'] > 0:
                         stats_message += f"  Total reps: {totals['reps']}\n"
-                    if totals['duration'] > 0:
-                        stats_message += f"  Total duration: {format_duration(totals['duration'])}\n"
-
-                stats_message += "\nRecent activities:\n"
-                for activity in activities[:5]:  # Show only the 5 most recent activities
-                    nicosia_time = activity[2].astimezone(NICOSIA_TIMEZONE)
-                    stats_message += f"- {activity[0]}: {activity[1]} ({nicosia_time.strftime('%Y-%m-%d %H:%M:%S')})\n"
+                    if totals['time'] > 0:
+                        stats_message += f"  Total duration: {format_duration(totals['time'])}\n"
+                    
+                    # Get the last activity date for this reference activity
+                    cursor.execute("""
+                        SELECT MAX(a.created_at)
+                        FROM activities a
+                        JOIN reference_activities r ON a.reference_activity_id = r.id
+                        WHERE a.user_id = %s AND r.activity_name = %s
+                    """, (user_id, activity))
+                    last_activity_date = cursor.fetchone()[0]
+                    if last_activity_date:
+                        nicosia_time = last_activity_date.astimezone(NICOSIA_TIMEZONE)
+                        stats_message += f"  Last performed: {nicosia_time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                    
+                    stats_message += "\n"
 
                 bot.reply_to(message, stats_message)
         except Exception as e:
-            print(f"Error in get_stats: {str(e)}")
-            bot.reply_to(message, "An error occurred while fetching your statistics. Please try again later.")
+            error_message = f"An error occurred while fetching your statistics: {str(e)}\n"
+            error_message += f"Error type: {type(e).__name__}\n"
+            error_message += f"Error details: {str(e.args)}"
+            bot.reply_to(message, error_message)
+            print(error_message)  # Log the error to the console
         finally:
             release_connection(conn)
 
@@ -457,7 +550,7 @@ Let's achieve our fitness goals together! 💪
                     if activities_count > 0:
                         message = "👀 It looks like you've already logged some activities today. Keep going! 🏃‍♂️"
                     else:
-                        message = "😊 No worries! There's still time to get active. Remember, consistency is key! 🔑"
+                        message = "😊 No worries! There's still time to get active. Remember, consistency is key! "
                 
                 bot.answer_callback_query(call.id, "Thanks for your response!")
                 bot.send_message(user_id, message)
@@ -470,15 +563,14 @@ Let's achieve our fitness goals together! 💪
         if check_maintenance(message, bot):
             return
         bot.reply_to(message, "Please enter the name of the activity you want to add to your reference list (or /exit to cancel):")
-        bot.register_next_step_handler(message, process_add_reference_activity)
+        bot.register_next_step_handler(message, process_add_reference_activity_name)
 
-    def process_add_reference_activity(message: Message):
+    def process_add_reference_activity_name(message: Message):
         if check_maintenance(message, bot):
             return
         if check_exit(message, bot):
             return
-        activity_name = message.text.strip()  # Remove leading/trailing whitespace, but keep original case
-        telegram_id = message.from_user.id
+        activity_name = message.text.strip()
         
         # List of commands to check against
         commands = ['start', 'help', 'register', 'auth', 'add', 'update', 'delete', 'list', 'stats', 'logout', 'addref', 'listref', 'updateref', 'deleteref', 'exit']
@@ -486,19 +578,36 @@ Let's achieve our fitness goals together! 💪
         # Check if the activity name is a command (case-insensitive)
         if activity_name.lower().startswith('/') or activity_name.lower() in commands:
             bot.reply_to(message, "You cannot use a command as an activity name. Please choose a different name.")
-            return
+            return add_reference_activity(message)
 
+        keyboard = types.ReplyKeyboardMarkup(row_width=2, one_time_keyboard=True, resize_keyboard=True)
+        keyboard.add("time", "reps")
+        bot.reply_to(message, "Please select the type of activity:", reply_markup=keyboard)
+        bot.register_next_step_handler(message, process_add_reference_activity_type, activity_name)
+
+    def process_add_reference_activity_type(message: Message, activity_name):
+        if check_maintenance(message, bot):
+            return
+        if check_exit(message, bot):
+            return
+        
+        activity_type = message.text.strip().lower()
+        if activity_type not in ["time", "reps"]:
+            bot.reply_to(message, "Invalid type. Please select either 'time' or 'reps'.")
+            return add_reference_activity(message)
+
+        telegram_id = message.from_user.id
         conn = get_connection()
         try:
             with conn.cursor() as cursor:
                 cursor.execute("SELECT id FROM users WHERE telegram_id = %s", (telegram_id,))
                 user_id = cursor.fetchone()[0]
                 cursor.execute(
-                    "INSERT INTO reference_activities (user_id, activity_name) VALUES (%s, %s) ON CONFLICT DO NOTHING",
-                    (user_id, activity_name)
+                    "INSERT INTO reference_activities (user_id, activity_name, activity_type) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+                    (user_id, activity_name, activity_type)
                 )
                 conn.commit()
-                bot.reply_to(message, f"Activity '{activity_name}' has been added to your reference list!")
+                bot.reply_to(message, f"Activity '{activity_name}' ({activity_type}) has been added to your reference list!", reply_markup=types.ReplyKeyboardRemove())
         except Exception as e:
             bot.reply_to(message, f"An error occurred while adding the reference activity: {str(e)}")
         finally:
@@ -516,13 +625,13 @@ Let's achieve our fitness goals together! 💪
             with conn.cursor() as cursor:
                 cursor.execute("SELECT id FROM users WHERE telegram_id = %s", (telegram_id,))
                 user_id = cursor.fetchone()[0]
-                cursor.execute("SELECT id, activity_name FROM reference_activities WHERE user_id = %s ORDER BY id", (user_id,))
+                cursor.execute("SELECT id, activity_name, activity_type FROM reference_activities WHERE user_id = %s ORDER BY id", (user_id,))
                 activities = cursor.fetchall()
                 
                 if activities:
                     response = "Your reference activities:\n\n"
                     for activity in activities:
-                        response += f"ID: {activity[0]}, Activity: {activity[1]}\n"
+                        response += f"ID: {activity[0]}, Activity: {activity[1]} ({activity[2]})\n"
                 else:
                     response = "You haven't added any reference activities yet."
                 
@@ -535,39 +644,83 @@ Let's achieve our fitness goals together! 💪
     def update_reference_activity(message: Message):
         if check_maintenance(message, bot):
             return
-        bot.reply_to(message, "Please enter the ID of the reference activity you want to update:")
+        bot.reply_to(message, "Please enter the ID of the reference activity you want to update:", reply_markup=types.ReplyKeyboardRemove())
         bot.register_next_step_handler(message, process_update_reference_activity_id)
 
     def process_update_reference_activity_id(message: Message):
         if check_maintenance(message, bot):
             return
+        if check_exit(message, bot):
+            return
+        
         try:
             activity_id = int(message.text.strip())
-            bot.reply_to(message, "Now, please enter the new name for this reference activity:")
-            bot.register_next_step_handler(message, process_update_reference_activity_name, activity_id)
+            telegram_id = message.from_user.id
+            
+            conn = get_connection()
+            try:
+                with conn.cursor() as cursor:
+                    cursor.execute("SELECT id FROM users WHERE telegram_id = %s", (telegram_id,))
+                    user_id = cursor.fetchone()[0]
+                    cursor.execute("SELECT activity_name, activity_type FROM reference_activities WHERE id = %s AND user_id = %s", (activity_id, user_id))
+                    result = cursor.fetchone()
+                    if result:
+                        current_name, current_type = result
+                        bot.reply_to(message, f"Current name: {current_name}\nCurrent type: {current_type}\nPlease enter the new name for this activity (or 'skip' to keep the current name):")
+                        bot.register_next_step_handler(message, process_update_reference_activity_name, activity_id, current_name, current_type)
+                    else:
+                        bot.reply_to(message, "Reference activity not found or you don't have permission to update it.")
+            finally:
+                release_connection(conn)
         except ValueError:
             bot.reply_to(message, "Invalid input. Please enter a valid activity ID (number).")
+        except Exception as e:
+            bot.reply_to(message, f"An error occurred while processing the activity ID: {str(e)}")
 
-    def process_update_reference_activity_name(message: Message, activity_id):
+    def process_update_reference_activity_name(message: Message, activity_id, current_name, current_type):
         if check_maintenance(message, bot):
             return
-        new_activity_name = message.text.strip()
-        telegram_id = message.from_user.id
+        if check_exit(message, bot):
+            return
         
+        new_name = message.text.strip()
+        if new_name.lower() == 'skip':
+            new_name = current_name
+        
+        keyboard = types.ReplyKeyboardMarkup(row_width=3, one_time_keyboard=True, resize_keyboard=True)
+        keyboard.add("time", "reps", "skip")
+        bot.reply_to(message, f"Current type: {current_type}\nPlease select the new type for this activity:", reply_markup=keyboard)
+        bot.register_next_step_handler(message, process_update_reference_activity_type_keyboard, activity_id, new_name, current_type)
+
+    def process_update_reference_activity_type_keyboard(message: Message, activity_id, new_name, current_type):
+        if check_maintenance(message, bot):
+            return
+        if check_exit(message, bot):
+            return
+        
+        new_type = message.text.strip().lower()
+        if new_type not in ['time', 'reps', 'skip']:
+            bot.reply_to(message, "Invalid type. Please select either 'time', 'reps', or 'skip' to keep the current type.")
+            keyboard = types.ReplyKeyboardMarkup(row_width=3, one_time_keyboard=True, resize_keyboard=True)
+            keyboard.add("time", "reps", "skip")
+            bot.reply_to(message, f"Please select the new type for this activity:", reply_markup=keyboard)
+            return bot.register_next_step_handler(message, process_update_reference_activity_type_keyboard, activity_id, new_name, current_type)
+        
+        if new_type == 'skip':
+            new_type = current_type
+        
+        telegram_id = message.from_user.id
         conn = get_connection()
         try:
             with conn.cursor() as cursor:
                 cursor.execute("SELECT id FROM users WHERE telegram_id = %s", (telegram_id,))
                 user_id = cursor.fetchone()[0]
                 cursor.execute(
-                    "UPDATE reference_activities SET activity_name = %s WHERE id = %s AND user_id = %s",
-                    (new_activity_name, activity_id, user_id)
+                    "UPDATE reference_activities SET activity_name = %s, activity_type = %s WHERE id = %s AND user_id = %s",
+                    (new_name, new_type, activity_id, user_id)
                 )
-                if cursor.rowcount == 0:
-                    bot.reply_to(message, "Reference activity not found or you don't have permission to update it.")
-                else:
-                    conn.commit()
-                    bot.reply_to(message, f"Reference activity with ID {activity_id} has been updated to '{new_activity_name}'.")
+                conn.commit()
+                bot.reply_to(message, f"Reference activity updated successfully!\nNew name: {new_name}\nNew type: {new_type}", reply_markup=types.ReplyKeyboardRemove())
         except Exception as e:
             bot.reply_to(message, f"An error occurred while updating the reference activity: {str(e)}")
         finally:
@@ -605,36 +758,6 @@ Let's achieve our fitness goals together! 💪
             bot.reply_to(message, "Invalid input. Please enter a valid activity ID (number).")
         except Exception as e:
             bot.reply_to(message, f"An error occurred while deleting the reference activity: {str(e)}")
-
-    def parse_reps_or_duration(reps_or_duration):
-        if reps_or_duration.endswith('reps'):
-            return int(reps_or_duration.split()[0]), 'reps'
-        else:
-            duration_pattern = r'(\d+)\s*(hour|minute|second)s?'
-            matches = re.findall(duration_pattern, reps_or_duration, re.IGNORECASE)
-            total_seconds = 0
-            for value, unit in matches:
-                if unit.lower().startswith('hour'):
-                    total_seconds += int(value) * 3600
-                elif unit.lower().startswith('minute'):
-                    total_seconds += int(value) * 60
-                elif unit.lower().startswith('second'):
-                    total_seconds += int(value)
-            return total_seconds, 'seconds'
-
-    def format_duration(seconds):
-        if seconds == 0:
-            return "0 seconds"
-        hours, remainder = divmod(seconds, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        parts = []
-        if hours > 0:
-            parts.append(f"{hours} hour{'s' if hours != 1 else ''}")
-        if minutes > 0:
-            parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
-        if seconds > 0 or not parts:
-            parts.append(f"{seconds} second{'s' if seconds != 1 else ''}")
-        return " ".join(parts)
 
     def check_exit(message: Message, bot: TeleBot):
         if message.text.lower() == '/exit':

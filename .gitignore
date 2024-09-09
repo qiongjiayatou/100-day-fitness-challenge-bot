@@ -1,5 +1,6 @@
 .env
 __pycache__/
+.pytest_cache/
 *.pyc
 postgres_data/
 # Celery beat schedule file
