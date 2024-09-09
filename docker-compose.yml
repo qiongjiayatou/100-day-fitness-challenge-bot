@@ -14,8 +14,19 @@ services:
     restart: always
     ports:
       - 8443:8443
-    command: watchmedo auto-restart --patterns="*.py" --recursive -- python /app/main.py
-
+    command: python /app/main.py
+    # command: watchmedo auto-restart --patterns="*.py" --recursive -- python /app/main.py
+    # healthcheck:
+    #   test: ["CMD", "bash", "/app/health_check.sh"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 5
+    #   start_period: 5s
+    # logging:
+    #   driver: "json-file"
+    #   options:
+    #     max-size: "200k"
+    #     max-file: "10"
   db:
     image: postgres:16
     container_name: hdays_db
@@ -27,36 +38,36 @@ services:
     ports:
       - 5455:5432
 
-  # redis:
-  #   image: redis:alpine
-  #   container_name: hdays_redis
-  #   restart: always
+  redis:
+    image: redis:alpine
+    container_name: hdays_redis
+    restart: always
 
-  # celery_worker:
-  #   build: .
-  #   container_name: hdays_celery_worker
-  #   depends_on:
-  #     - db
-  #     - redis
-  #   env_file:
-  #     - .env
-  #   volumes:
-  #     - .:/app
-  #   restart: always
-  #   command: celery -A tasks worker --loglevel=info
+  celery_worker:
+    build: .
+    container_name: hdays_celery_worker
+    depends_on:
+      - db
+      - redis
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    restart: always
+    command: celery -A tasks worker --loglevel=info
 
-  # celery_beat:
-  #   build: .
-  #   container_name: hdays_celery_beat
-  #   depends_on:
-  #     - db
-  #     - redis
-  #   env_file:
-  #     - .env
-  #   volumes:
-  #     - .:/app
-  #   restart: always
-  #   command: celery -A tasks beat --loglevel=info
+  celery_beat:
+    build: .
+    container_name: hdays_celery_beat
+    depends_on:
+      - db
+      - redis
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    restart: always
+    command: celery -A tasks beat --loglevel=info
 
 volumes:
   postgres_data:

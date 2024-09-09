@@ -6,7 +6,7 @@ from database import init_db, migrate_to_user_id
 
 
 def main():
-    # init_db()
+    init_db()
     
     bot = telebot.TeleBot(BOT_TOKEN)
     register_handlers(bot)

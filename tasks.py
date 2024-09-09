@@ -27,7 +27,7 @@ def update_streaks():
             cursor.execute("""
                 SELECT u.telegram_id, MAX(a.created_at::date) as last_activity_date
                 FROM users u
-                LEFT JOIN activities a ON u.telegram_id = a.telegram_id
+                LEFT JOIN activities a ON u.id = a.user_id
                 GROUP BY u.telegram_id
             """)
             users = cursor.fetchall()
