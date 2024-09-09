@@ -6,7 +6,7 @@ services:
     container_name: hdays_bot
     depends_on:
       - db
-      # - redis
+      - redis
     env_file:
       - .env
     volumes:
@@ -36,12 +36,12 @@ services:
     volumes:
       - ./postgres_data:/var/lib/postgresql/data
     env_file:
-      - .env
+      - .env  
     restart: always
     ports:
       - 5455:5432
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 5
