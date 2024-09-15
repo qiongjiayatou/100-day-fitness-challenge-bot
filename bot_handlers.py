@@ -40,26 +40,39 @@ def register_handlers(bot: TeleBot):
     def start(message: Message):
         if check_maintenance(message, bot):
             return
-        welcome_text = """
-🏅 Welcome to the 100-Day Fitness Challenge Bot! 🏅
-
-This challenge is simple:
-Choose one or more activities (e.g., walk 5,000 steps, do 50 push-ups, hold a 1-minute plank) 
-and do them every day for 100 days straight.
-
-Rules:
-• Choose any activity each day—steps, push-ups, squats, planks, anything goes!
-• No skipping! If you miss a day, the challenge resets to Day 1.
-• Even if you do fewer reps, it counts as long as you stay active.
-• Track your progress and stay motivated!
-
-To get started:
-• Register with /register <password>
-• Or authenticate with /auth <password>
-
-Let's achieve our fitness goals together! 💪
-"""
-        bot.reply_to(message, welcome_text)
+        
+        telegram_id = message.from_user.id
+        username = message.from_user.username
+        first_name = message.from_user.first_name
+        last_name = message.from_user.last_name
+        
+        conn = get_connection()
+        try:
+            with conn.cursor() as cursor:
+                # Check if user already exists
+                cursor.execute("SELECT id FROM users WHERE telegram_id = %s", (telegram_id,))
+                existing_user = cursor.fetchone()
+                
+                if existing_user:
+                    # Update user information
+                    cursor.execute(
+                        "UPDATE users SET username = %s, first_name = %s, last_name = %s WHERE telegram_id = %s",
+                        (username, first_name, last_name, telegram_id)
+                    )
+                    conn.commit()
+                    bot.reply_to(message, "Welcome back! Your information has been updated.")
+                else:
+                    # Insert new user
+                    cursor.execute(
+                        "INSERT INTO users (telegram_id, username, first_name, last_name) VALUES (%s, %s, %s, %s)",
+                        (telegram_id, username, first_name, last_name)
+                    )
+                    conn.commit()
+                    bot.reply_to(message, "Welcome! You've been successfully registered.")
+        except Exception as e:
+            bot.reply_to(message, f"An error occurred while processing your request: {str(e)}")
+        finally:
+            release_connection(conn)
 
     @bot.message_handler(commands=['help'])
     def help(message: Message):

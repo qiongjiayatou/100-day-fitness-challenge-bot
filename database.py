@@ -121,7 +121,7 @@ def init_db():
                     (2, (SELECT id FROM reference_activities WHERE user_id = 2 AND activity_name = 'Push Ups'), 40, '2024-09-05'),
                     (2, (SELECT id FROM reference_activities WHERE user_id = 2 AND activity_name = 'Push Ups'), 40, '2024-09-06'),
                     (2, (SELECT id FROM reference_activities WHERE user_id = 2 AND activity_name = 'Push Ups'), 40, '2024-09-07'),
-                    (2, (SELECT id FROM reference_activities WHERE user_id = 2 AND activity_name = 'Push Ups'), 40, '2024-09-08'),
+                    (2, (SELECT id FROM reference_activities WHERE user_id = 2 AND activity_name = 'Push Ups'), 40, '2024-09-08'),                
                     (5, (SELECT id FROM reference_activities WHERE user_id = 5 AND activity_name = 'Plank'), 30, '2024-09-04'),
                     (5, (SELECT id FROM reference_activities WHERE user_id = 5 AND activity_name = 'Plank'), 60, '2024-09-05'),
                     (5, (SELECT id FROM reference_activities WHERE user_id = 5 AND activity_name = 'Plank'), 75, '2024-09-06'),
@@ -162,7 +162,34 @@ def init_db():
                     (3, (SELECT id FROM reference_activities WHERE user_id = 3 AND activity_name = 'Abs'), 63, '2024-09-06'),
                     (3, (SELECT id FROM reference_activities WHERE user_id = 3 AND activity_name = 'Abs'), 40, '2024-09-07')
                 """)
-            
+                
+                cur.execute("""
+                    INSERT INTO activities (user_id, reference_activity_id, value, created_at)
+                    VALUES 
+                        (2, (SELECT id FROM reference_activities WHERE user_id = 2 AND activity_name = 'Push Ups'), 40, '2024-09-09')
+                """)
+                
+                # Insert activities for user with id 4 (Nes) for September 9th
+                cur.execute("""
+                    INSERT INTO activities (user_id, reference_activity_id, value, created_at)
+                    VALUES 
+                        (4, (SELECT id FROM reference_activities WHERE user_id = 4 AND activity_name = 'Plank'), 80, '2024-09-09'),
+                        (4, (SELECT id FROM reference_activities WHERE user_id = 4 AND activity_name = 'Push ups'), 10, '2024-09-09'),
+                        (4, (SELECT id FROM reference_activities WHERE user_id = 4 AND activity_name = 'Squat'), 30, '2024-09-09')
+                """)                          
+
+                # Insert activities for user with id 3 (Nadia) for September 8th and 9th
+                cur.execute("""
+                    INSERT INTO activities (user_id, reference_activity_id, value, created_at)
+                    VALUES 
+                        (3, (SELECT id FROM reference_activities WHERE user_id = 3 AND activity_name = 'Plank'), 93, '2024-09-08'),
+                        (3, (SELECT id FROM reference_activities WHERE user_id = 3 AND activity_name = 'Puch ups'), 12, '2024-09-08'),
+                        (3, (SELECT id FROM reference_activities WHERE user_id = 3 AND activity_name = 'ABS'), 0, '2024-09-08'),
+                        (3, (SELECT id FROM reference_activities WHERE user_id = 3 AND activity_name = 'Plank'), 120, '2024-09-09'),
+                        (3, (SELECT id FROM reference_activities WHERE user_id = 3 AND activity_name = 'Puch ups'), 30, '2024-09-09'),
+                        (3, (SELECT id FROM reference_activities WHERE user_id = 3 AND activity_name = 'ABS'), 40, '2024-09-09')
+                """)
+                
             conn.commit()
     finally:
         release_connection(conn)
@@ -185,4 +212,3 @@ def migrate_to_user_id():
     finally:
         release_connection(conn)
 
-# Add more database operations as needed
