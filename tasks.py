@@ -103,8 +103,8 @@ ENCOURAGEMENTS = [
 def setup_periodic_tasks(sender, **kwargs):
     # Schedule the daily check task
     sender.add_periodic_task(
-        crontab(minute='*'),  # This will run the task every minute
-        # crontab(hour=19, minute=0),
+        # crontab(minute='*'),  # This will run the task every minute
+        crontab(minute=0),  # This will run the task every hour at the start of the hour
         send_daily_check.s(),
     )
 

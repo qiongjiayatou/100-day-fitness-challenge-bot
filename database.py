@@ -104,11 +104,23 @@ class Database:
         finally:
             self.release_connection(conn)
 
-    def get_reference_activities(self, user_id):
+    def get_reference_activities(self, user_id, limit=None):
+        query = """
+        SELECT id, activity_name, activity_type 
+        FROM reference_activities 
+        WHERE user_id = %s 
+        ORDER BY id DESC
+        """
+        if limit:
+            query += " LIMIT %s"
+            params = (user_id, limit)
+        else:
+            params = (user_id,)
+        
         conn = self.get_connection()
         try:
             with conn.cursor() as cur:
-                cur.execute("SELECT id, activity_name, activity_type FROM reference_activities WHERE user_id = %s", (user_id,))
+                cur.execute(query, params)
                 return cur.fetchall()
         finally:
             self.release_connection(conn)
