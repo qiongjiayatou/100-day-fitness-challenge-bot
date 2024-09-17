@@ -1,214 +1,367 @@
 import psycopg2
 from psycopg2 import pool
-from config import POSTGRES_HOST, POSTGRES_PORT, POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD
+import os
+from dotenv import load_dotenv
+from config import *
 
-# Create a connection pool
-db_pool = pool.SimpleConnectionPool(
-    1, 20,
-    host=POSTGRES_HOST,
-    port=POSTGRES_PORT,
-    dbname=POSTGRES_DB,
-    user=POSTGRES_USER,
-    password=POSTGRES_PASSWORD
-)
 
-def get_connection():
-    return db_pool.getconn()
+load_dotenv()
 
-def release_connection(conn):
-    db_pool.putconn(conn)
+class Database:
+    def __init__(self):
+        self.connection_pool = psycopg2.pool.SimpleConnectionPool(
+            1, 20,
+            host=POSTGRES_HOST,
+            dbname=POSTGRES_DB,
+            user=POSTGRES_USER,
+            password=POSTGRES_PASSWORD
+        )
+        self.init_db()
 
-def init_db():
-    conn = get_connection()
-    try:
-        with conn.cursor() as cur:
-            # Create the users table
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    id SERIAL PRIMARY KEY,
-                    telegram_id BIGINT UNIQUE NOT NULL,
-                    username VARCHAR(255),
-                    first_name VARCHAR(255),
-                    last_name VARCHAR(255),
-                    is_admin BOOLEAN DEFAULT FALSE,
-                    password VARCHAR(255) NOT NULL,
-                    is_authenticated BOOLEAN DEFAULT FALSE,
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                    last_login TIMESTAMP WITH TIME ZONE
-                )
-            """)
-            
-            # Create the reference_activities table
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS reference_activities (
-                    id SERIAL PRIMARY KEY,
-                    user_id INTEGER REFERENCES users(id),
-                    activity_name TEXT NOT NULL,
-                    activity_type VARCHAR(50) NOT NULL,
-                    UNIQUE (user_id, activity_name)
-                )
-            """)
-            
-            # Create the activities table
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS activities (
-                    id SERIAL PRIMARY KEY,
-                    user_id INTEGER REFERENCES users(id),
-                    reference_activity_id INTEGER REFERENCES reference_activities(id),
-                    value BIGINT NOT NULL,
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            
-            # Add an index for faster queries on activities table
-            cur.execute("""
-                CREATE INDEX IF NOT EXISTS idx_activities_reference_activity_id 
-                ON activities(reference_activity_id)
-            """)
-            
-            # Check if initial data has already been inserted
-            cur.execute("SELECT COUNT(*) FROM users")
-            user_count = cur.fetchone()[0]
-            
-            if user_count == 0:
-                # Insert initial data only if the users table is empty
+    def get_connection(self):
+        return self.connection_pool.getconn()
+
+    def release_connection(self, conn):
+        self.connection_pool.putconn(conn)
+
+    def init_db(self):
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
                 cur.execute("""
-                    INSERT INTO users (id, telegram_id, username, first_name, last_name, is_admin, password, is_authenticated, created_at, last_login)
-                    VALUES 
-                    (1, 5238316166, NULL, NULL, NULL, FALSE, '$2b$12$V92Cf8f0F3CzyHXWHZA7e.PnQrz9C7OsaLErTT.fUvUDQjTPG0DbO', TRUE, '2024-09-06 13:40:08.745742+00', NULL),
-                    (2, 1509754664, NULL, NULL, NULL, FALSE, '$2b$12$TzOkohb.ua.zNZxrQwTrIOM20qFJNeonzsit/r3VVTfMSybJVKuhS', TRUE, '2024-09-06 21:06:59.388182+00', NULL),
-                    (3, 473767479, NULL, NULL, NULL, FALSE, '$2b$12$UgsHEdq6KvRwNUK7CYheauW.rlmMVG1xBvLaqfOYJqjvDCA1jc11K', TRUE, '2024-09-07 12:11:53.550141+00', NULL),
-                    (4, 469740169, NULL, NULL, NULL, FALSE, '$2b$12$s/R/9wfJaCnpG5dBe1mvGeqjP0MKzUrUOZYZDuSfVwNb34MuW93O6', TRUE, '2024-09-07 12:13:41.994466+00', NULL),
-                    (5, 904491755, NULL, NULL, NULL, FALSE, '$2b$12$N37Tx684nhyoaVGXFB3nQeMiJqCJ53A4qBhQL8KmfKcydQIitH3xq', TRUE, '2024-09-07 15:05:18.907019+00', NULL)
-                    ON CONFLICT (telegram_id) DO NOTHING
+                    CREATE TABLE IF NOT EXISTS users (
+                        id SERIAL PRIMARY KEY,
+                        telegram_id BIGINT UNIQUE NOT NULL,
+                        username VARCHAR(255),
+                        first_name VARCHAR(255),
+                        last_name VARCHAR(255),
+                        is_admin BOOLEAN DEFAULT FALSE,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                    )
                 """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS reference_activities (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER REFERENCES users(id),
+                        activity_name VARCHAR(255) NOT NULL,
+                        activity_type VARCHAR(50) NOT NULL,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS activities (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER REFERENCES users(id),
+                        reference_activity_id INTEGER REFERENCES reference_activities(id),
+                        value INTEGER NOT NULL,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                conn.commit()
+        finally:
+            self.release_connection(conn)
 
+    def add_user(self, telegram_id, username, first_name, last_name):
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO users (telegram_id, username, first_name, last_name)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (telegram_id) DO UPDATE
+                    SET username = EXCLUDED.username,
+                        first_name = EXCLUDED.first_name,
+                        last_name = EXCLUDED.last_name
+                    RETURNING id
+                """, (telegram_id, username, first_name, last_name))
+                user_id = cur.fetchone()[0]
+                conn.commit()
+                return user_id
+        finally:
+            self.release_connection(conn)
+
+    def get_user(self, telegram_id):
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT * FROM users WHERE telegram_id = %s", (telegram_id,))
+                return cur.fetchone()
+        finally:
+            self.release_connection(conn)
+
+    def add_reference_activity(self, user_id, activity_name, activity_type):
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO reference_activities (user_id, activity_name, activity_type)
-                    VALUES 
-                    (1, 'Jumping', 'time'),
-                    (1, 'Abs', 'reps'),
-                    (2, 'Plank', 'time'),
-                    (2, 'Side Plank', 'time'),
-                    (2, 'Push Ups', 'reps'),
-                    (3, 'Plank', 'time'),
-                    (3, 'Push Ups', 'reps'),
-                    (3, 'Abs', 'reps'),
-                    (4, 'Plank', 'time'),
-                    (4, 'Pull Ups', 'reps'),
-                    (4, 'Squats', 'reps'),
-                    (5, 'Plank', 'time'),
-                    (5, 'Side Plank', 'time')
-                    ON CONFLICT (user_id, activity_name) DO NOTHING
-                """)	
-     
-                cur.execute("""
-                    INSERT INTO activities (user_id, reference_activity_id, value, created_at)
-                    VALUES 
-                    (2, (SELECT id FROM reference_activities WHERE user_id = 2 AND activity_name = 'Plank'), 60, '2024-09-04'),
-                    (2, (SELECT id FROM reference_activities WHERE user_id = 2 AND activity_name = 'Plank'), 70, '2024-09-05'),
-                    (2, (SELECT id FROM reference_activities WHERE user_id = 2 AND activity_name = 'Plank'), 80, '2024-09-06'),
-                    (2, (SELECT id FROM reference_activities WHERE user_id = 2 AND activity_name = 'Plank'), 80, '2024-09-07'),
-                    (2, (SELECT id FROM reference_activities WHERE user_id = 2 AND activity_name = 'Plank'), 90, '2024-09-08'),
-                    (2, (SELECT id FROM reference_activities WHERE user_id = 2 AND activity_name = 'Plank'), 90, '2024-09-09'),
-                    (2, (SELECT id FROM reference_activities WHERE user_id = 2 AND activity_name = 'Side Plank'), 30, '2024-09-04'),
-                    (2, (SELECT id FROM reference_activities WHERE user_id = 2 AND activity_name = 'Side Plank'), 40, '2024-09-05'),
-                    (2, (SELECT id FROM reference_activities WHERE user_id = 2 AND activity_name = 'Side Plank'), 40, '2024-09-06'),
-                    (2, (SELECT id FROM reference_activities WHERE user_id = 2 AND activity_name = 'Side Plank'), 40, '2024-09-07'),
-                    (2, (SELECT id FROM reference_activities WHERE user_id = 2 AND activity_name = 'Side Plank'), 40, '2024-09-08'),
-                    (2, (SELECT id FROM reference_activities WHERE user_id = 2 AND activity_name = 'Side Plank'), 40, '2024-09-09'),
-                    (2, (SELECT id FROM reference_activities WHERE user_id = 2 AND activity_name = 'Push Ups'), 35, '2024-09-04'),
-                    (2, (SELECT id FROM reference_activities WHERE user_id = 2 AND activity_name = 'Push Ups'), 40, '2024-09-05'),
-                    (2, (SELECT id FROM reference_activities WHERE user_id = 2 AND activity_name = 'Push Ups'), 40, '2024-09-06'),
-                    (2, (SELECT id FROM reference_activities WHERE user_id = 2 AND activity_name = 'Push Ups'), 40, '2024-09-07'),
-                    (2, (SELECT id FROM reference_activities WHERE user_id = 2 AND activity_name = 'Push Ups'), 40, '2024-09-08'),                
-                    (5, (SELECT id FROM reference_activities WHERE user_id = 5 AND activity_name = 'Plank'), 30, '2024-09-04'),
-                    (5, (SELECT id FROM reference_activities WHERE user_id = 5 AND activity_name = 'Plank'), 60, '2024-09-05'),
-                    (5, (SELECT id FROM reference_activities WHERE user_id = 5 AND activity_name = 'Plank'), 75, '2024-09-06'),
-                    (5, (SELECT id FROM reference_activities WHERE user_id = 5 AND activity_name = 'Plank'), 60, '2024-09-07'),
-                    (5, (SELECT id FROM reference_activities WHERE user_id = 5 AND activity_name = 'Plank'), 60, '2024-09-08'),
-                    (5, (SELECT id FROM reference_activities WHERE user_id = 5 AND activity_name = 'Plank'), 63, '2024-09-09'),
-                    (5, (SELECT id FROM reference_activities WHERE user_id = 5 AND activity_name = 'Side Plank'), 10, '2024-09-04'),
-                    (5, (SELECT id FROM reference_activities WHERE user_id = 5 AND activity_name = 'Side Plank'), 30, '2024-09-05'),
-                    (5, (SELECT id FROM reference_activities WHERE user_id = 5 AND activity_name = 'Side Plank'), 20, '2024-09-06'),
-                    (5, (SELECT id FROM reference_activities WHERE user_id = 5 AND activity_name = 'Side Plank'), 25, '2024-09-07'),
-                    (5, (SELECT id FROM reference_activities WHERE user_id = 5 AND activity_name = 'Side Plank'), 30, '2024-09-08'),
-                    (5, (SELECT id FROM reference_activities WHERE user_id = 5 AND activity_name = 'Side Plank'), 36, '2024-09-09'),
-                    (4, (SELECT id FROM reference_activities WHERE user_id = 4 AND activity_name = 'Plank'), 20, '2024-09-04'),
-                    (4, (SELECT id FROM reference_activities WHERE user_id = 4 AND activity_name = 'Plank'), 60, '2024-09-05'),
-                    (4, (SELECT id FROM reference_activities WHERE user_id = 4 AND activity_name = 'Plank'), 60, '2024-09-06'),
-                    (4, (SELECT id FROM reference_activities WHERE user_id = 4 AND activity_name = 'Plank'), 60, '2024-09-07'),
-                    (4, (SELECT id FROM reference_activities WHERE user_id = 4 AND activity_name = 'Plank'), 60, '2024-09-08'),
-                    (4, (SELECT id FROM reference_activities WHERE user_id = 4 AND activity_name = 'Pull Ups'), 7, '2024-09-04'),
-                    (4, (SELECT id FROM reference_activities WHERE user_id = 4 AND activity_name = 'Pull Ups'), 7, '2024-09-05'),
-                    (4, (SELECT id FROM reference_activities WHERE user_id = 4 AND activity_name = 'Pull Ups'), 7, '2024-09-06'),
-                    (4, (SELECT id FROM reference_activities WHERE user_id = 4 AND activity_name = 'Pull Ups'), 7, '2024-09-07'),
-                    (4, (SELECT id FROM reference_activities WHERE user_id = 4 AND activity_name = 'Pull Ups'), 10, '2024-09-08'),
-                    (4, (SELECT id FROM reference_activities WHERE user_id = 4 AND activity_name = 'Squats'), 25, '2024-09-04'),
-                    (4, (SELECT id FROM reference_activities WHERE user_id = 4 AND activity_name = 'Squats'), 30, '2024-09-05'),
-                    (4, (SELECT id FROM reference_activities WHERE user_id = 4 AND activity_name = 'Squats'), 30, '2024-09-06'),
-                    (4, (SELECT id FROM reference_activities WHERE user_id = 4 AND activity_name = 'Squats'), 25, '2024-09-07'),
-                    (4, (SELECT id FROM reference_activities WHERE user_id = 4 AND activity_name = 'Squats'), 30, '2024-09-08'),
-                    (3, (SELECT id FROM reference_activities WHERE user_id = 3 AND activity_name = 'Plank'), 20, '2024-09-04'),
-                    (3, (SELECT id FROM reference_activities WHERE user_id = 3 AND activity_name = 'Plank'), 60, '2024-09-05'),
-                    (3, (SELECT id FROM reference_activities WHERE user_id = 3 AND activity_name = 'Plank'), 93, '2024-09-06'),
-                    (3, (SELECT id FROM reference_activities WHERE user_id = 3 AND activity_name = 'Plank'), 120, '2024-09-07'),
-                    (3, (SELECT id FROM reference_activities WHERE user_id = 3 AND activity_name = 'Push Ups'), 15, '2024-09-04'),
-                    (3, (SELECT id FROM reference_activities WHERE user_id = 3 AND activity_name = 'Push Ups'), 15, '2024-09-05'),
-                    (3, (SELECT id FROM reference_activities WHERE user_id = 3 AND activity_name = 'Push Ups'), 13, '2024-09-06'),
-                    (3, (SELECT id FROM reference_activities WHERE user_id = 3 AND activity_name = 'Push Ups'), 12, '2024-09-07'),
-                    (3, (SELECT id FROM reference_activities WHERE user_id = 3 AND activity_name = 'Abs'), 20, '2024-09-04'),
-                    (3, (SELECT id FROM reference_activities WHERE user_id = 3 AND activity_name = 'Abs'), 20, '2024-09-05'),
-                    (3, (SELECT id FROM reference_activities WHERE user_id = 3 AND activity_name = 'Abs'), 63, '2024-09-06'),
-                    (3, (SELECT id FROM reference_activities WHERE user_id = 3 AND activity_name = 'Abs'), 40, '2024-09-07')
-                """)
-                
-                cur.execute("""
-                    INSERT INTO activities (user_id, reference_activity_id, value, created_at)
-                    VALUES 
-                        (2, (SELECT id FROM reference_activities WHERE user_id = 2 AND activity_name = 'Push Ups'), 40, '2024-09-09')
-                """)
-                
-                # Insert activities for user with id 4 (Nes) for September 9th
-                cur.execute("""
-                    INSERT INTO activities (user_id, reference_activity_id, value, created_at)
-                    VALUES 
-                        (4, (SELECT id FROM reference_activities WHERE user_id = 4 AND activity_name = 'Plank'), 80, '2024-09-09'),
-                        (4, (SELECT id FROM reference_activities WHERE user_id = 4 AND activity_name = 'Push ups'), 10, '2024-09-09'),
-                        (4, (SELECT id FROM reference_activities WHERE user_id = 4 AND activity_name = 'Squat'), 30, '2024-09-09')
-                """)                          
+                    VALUES (%s, %s, %s)
+                    RETURNING id
+                """, (user_id, activity_name, activity_type))
+                activity_id = cur.fetchone()[0]
+                conn.commit()
+                return activity_id
+        finally:
+            self.release_connection(conn)
 
-                # Insert activities for user with id 3 (Nadia) for September 8th and 9th
+    def get_reference_activities(self, user_id):
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT id, activity_name, activity_type FROM reference_activities WHERE user_id = %s", (user_id,))
+                return cur.fetchall()
+        finally:
+            self.release_connection(conn)
+
+    def add_activity(self, user_id, reference_activity_id, value):
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
                 cur.execute("""
-                    INSERT INTO activities (user_id, reference_activity_id, value, created_at)
-                    VALUES 
-                        (3, (SELECT id FROM reference_activities WHERE user_id = 3 AND activity_name = 'Plank'), 93, '2024-09-08'),
-                        (3, (SELECT id FROM reference_activities WHERE user_id = 3 AND activity_name = 'Puch ups'), 12, '2024-09-08'),
-                        (3, (SELECT id FROM reference_activities WHERE user_id = 3 AND activity_name = 'ABS'), 0, '2024-09-08'),
-                        (3, (SELECT id FROM reference_activities WHERE user_id = 3 AND activity_name = 'Plank'), 120, '2024-09-09'),
-                        (3, (SELECT id FROM reference_activities WHERE user_id = 3 AND activity_name = 'Puch ups'), 30, '2024-09-09'),
-                        (3, (SELECT id FROM reference_activities WHERE user_id = 3 AND activity_name = 'ABS'), 40, '2024-09-09')
-                """)
+                    INSERT INTO activities (user_id, reference_activity_id, value)
+                    VALUES (%s, %s, %s)
+                    RETURNING id
+                """, (user_id, reference_activity_id, value))
+                activity_id = cur.fetchone()[0]
+                conn.commit()
+                return activity_id
+        finally:
+            self.release_connection(conn)
+
+    def get_activities(self, user_id):
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT a.id, r.activity_name, a.value, r.activity_type, a.created_at
+                    FROM activities a
+                    JOIN reference_activities r ON a.reference_activity_id = r.id
+                    WHERE a.user_id = %s
+                    ORDER BY a.created_at DESC
+                """, (user_id,))
+                return cur.fetchall()
+        finally:
+            self.release_connection(conn)
+
+    def get_activity(self, activity_id, user_id):
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT id, value, reference_activity_id FROM activities WHERE id = %s AND user_id = %s", (activity_id, user_id))
+                return cur.fetchone()
+        finally:
+            self.release_connection(conn)
+
+    def update_activity(self, activity_id, user_id, new_value):
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE activities SET value = %s WHERE id = %s AND user_id = %s", (new_value, activity_id, user_id))
+                conn.commit()
+                return True
+        finally:
+            self.release_connection(conn)
+
+    def delete_activity(self, activity_id, user_id):
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM activities WHERE id = %s AND user_id = %s", (activity_id, user_id))
+                conn.commit()
+                return True
+        finally:
+            self.release_connection(conn)
+
+    def get_recent_activities(self, user_id):
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT a.id, r.activity_name, a.value, r.activity_type, a.created_at
+                    FROM activities a
+                    JOIN reference_activities r ON a.reference_activity_id = r.id
+                    WHERE a.user_id = %s
+                    ORDER BY a.created_at DESC
+                """, (user_id,))
+                return cur.fetchall()
+        finally:
+            self.release_connection(conn)
+
+    def get_total_activities_count(self, user_id):
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM activities WHERE user_id = %s", (user_id,))
+                return cur.fetchone()[0]
+        finally:
+            self.release_connection(conn)
+
+    def get_unique_activities_count(self, user_id):
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(DISTINCT reference_activity_id) FROM activities WHERE user_id = %s", (user_id,))
+                return cur.fetchone()[0]
+        finally:
+            self.release_connection(conn)
+
+    def get_most_frequent_activity(self, user_id):
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT r.activity_name, COUNT(*) as count
+                    FROM activities a
+                    JOIN reference_activities r ON a.reference_activity_id = r.id
+                    WHERE a.user_id = %s
+                    GROUP BY r.activity_name
+                    ORDER BY count DESC
+                """, (user_id,))
+                return cur.fetchone()
+        finally:
+            self.release_connection(conn)
+
+    def get_all_activities(self, user_id):
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT a.id, r.activity_name, a.value, r.activity_type, a.created_at
+                    FROM activities a
+                    JOIN reference_activities r ON a.reference_activity_id = r.id
+                    WHERE a.user_id = %s
+                    ORDER BY a.created_at DESC
+                """, (user_id,))
+                return cur.fetchall()
+        finally:
+            self.release_connection(conn)
+
+    def get_last_activity(self, activity_name):
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT a.id, a.value, a.created_at
+                    FROM activities a
+                    JOIN reference_activities r ON a.reference_activity_id = r.id
+                    WHERE r.activity_name = %s
+                    ORDER BY a.created_at DESC
+                """, (activity_name,))
+                return cur.fetchone()
+        finally:
+            self.release_connection(conn)
+
+    def get_activities_count_for_today(self, user_id):
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT COUNT(*) as count
+                    FROM activities a
+                    JOIN reference_activities r ON a.reference_activity_id = r.id
+                    WHERE a.user_id = %s AND a.created_at >= CURRENT_DATE
+                """, (user_id,))
+                return cur.fetchone()[0]
+        finally:
+            self.release_connection(conn)
+
+    def update_user(self, telegram_id, username, first_name, last_name):
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE users 
+                    SET username = %s, first_name = %s, last_name = %s 
+                    WHERE telegram_id = %s
+                    RETURNING id
+                """, (username, first_name, last_name, telegram_id))
+                user_id = cur.fetchone()[0]
+                conn.commit()
+                return user_id
+        finally:
+            self.release_connection(conn)
+
+    def execute_query(self, query, params=None):
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(query, params)
+                return cur.fetchall()
+        finally:
+            self.release_connection(conn)
+
+    def get_reference_activity(self, activity_id, user_id):
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT activity_name, activity_type
+                    FROM reference_activities
+                    WHERE id = %s AND user_id = %s
+                """, (activity_id, user_id))
+                return cur.fetchone()
+        finally:
+            self.release_connection(conn)
+
+    def update_reference_activity(self, activity_id, user_id, new_name, new_type):
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE reference_activities
+                    SET activity_name = %s, activity_type = %s
+                    WHERE id = %s AND user_id = %s
+                    RETURNING id
+                """, (new_name, new_type, activity_id, user_id))
+                updated_id = cur.fetchone()
+                conn.commit()
+                return updated_id is not None
+        finally:
+            self.release_connection(conn)
+
+    def delete_reference_activity(self, activity_id, user_id):
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                # First, delete all activities associated with this reference activity
+                cur.execute("""
+                    DELETE FROM activities
+                    WHERE reference_activity_id = %s AND user_id = %s
+                """, (activity_id, user_id))
                 
-            conn.commit()
-    finally:
-        release_connection(conn)
+                # Then, delete the reference activity itself
+                cur.execute("""
+                    DELETE FROM reference_activities
+                    WHERE id = %s AND user_id = %s
+                    RETURNING id
+                """, (activity_id, user_id))
+                deleted_id = cur.fetchone()
+                conn.commit()
+                return deleted_id is not None
+        finally:
+            self.release_connection(conn)
 
-# Export the db_pool as db
-db = db_pool
+    def get_activity_count_for_reference(self, reference_activity_id, user_id):
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT COUNT(*)
+                    FROM activities
+                    WHERE reference_activity_id = %s AND user_id = %s
+                """, (reference_activity_id, user_id))
+                return cur.fetchone()[0]
+        finally:
+            self.release_connection(conn)
 
-def migrate_to_user_id():
-    conn = get_connection()
-    try:
-        with conn.cursor() as cur:
-            with open('migration_scripts.sql', 'r') as file:
-                sql_script = file.read()
-                cur.execute(sql_script)
-            conn.commit()
-            print("Migration completed successfully.")
-    except Exception as e:
-        conn.rollback()
-        print(f"Error during migration: {e}")
-    finally:
-        release_connection(conn)
+    def get_all_users(self):
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT id, telegram_id, username, first_name, last_name, is_admin FROM users")
+                return cur.fetchall()
+        finally:
+            self.release_connection(conn)
+
+db = Database()
 

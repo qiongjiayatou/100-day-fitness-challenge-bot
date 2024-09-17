@@ -14,19 +14,7 @@ services:
     restart: always
     ports:
       - 8443:8443
-    command: python /app/main.py
-    # command: watchmedo auto-restart --patterns="*.py" --recursive -- python /app/main.py
-    # healthcheck:
-    #   test: ["CMD", "bash", "/app/health_check.sh"]
-    #   interval: 30s
-    #   timeout: 10s
-    #   retries: 5
-    #   start_period: 5s
-    # logging:
-    #   driver: "json-file"
-    #   options:
-    #     max-size: "200k"
-    #     max-file: "10"
+    command: watchmedo auto-restart --directory=/app --pattern=*.py --recursive -- python /app/main.py
     networks:
       - app-network
 
