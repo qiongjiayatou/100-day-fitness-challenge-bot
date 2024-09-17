@@ -1,6 +1,7 @@
 from celery import Celery
 from celery.schedules import crontab
 import telebot
+import types
 import os
 from database import Database  # Import the Database class
 import random
@@ -8,6 +9,8 @@ import logging
 from config import ADMIN_ID, BOT_TOKEN
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import pytz
+from datetime import datetime, timedelta
+from config import *
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -15,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 logger.info("Tasks module initialized")
 
-app = Celery('tasks', broker=os.getenv('REDIS_URL'))
+app = Celery('tasks', broker=REDIS_URL)
 bot = telebot.TeleBot(BOT_TOKEN)
 
 # Create a Database instance
@@ -98,63 +101,80 @@ ENCOURAGEMENTS = [
 
 @app.on_after_configure.connect
 def setup_periodic_tasks(sender, **kwargs):
-    logger.info("Setting up periodic tasks")
-    # Schedule daily check-in task to run every day at 7:00 PM Nicosia time
+    # Schedule the daily check task
     sender.add_periodic_task(
-        crontab(hour=19, minute=0, tz=pytz.timezone('Europe/Nicosia')),
+        crontab(minute='*'),  # This will run the task every minute
+        # crontab(hour=19, minute=0),
         send_daily_check.s(),
     )
 
 @app.task
 def send_daily_check():
-    try:
-        users = db.get_all_users()
-        
-        if not users:
-            logger.warning("No users found in the database.")
-            return
-
-        for user in users:
-            user_id = user[1]  # Assuming telegram_id is the second column
-            message = "Have you been active today?"
-            send_notification_with_keyboard.delay(user_id, message)
-        
-        logger.info(f"Daily check sent to {len(users)} users.")
+    nicosia_tz = pytz.timezone('Europe/Nicosia')
+    now = datetime.now(nicosia_tz)
     
-    except Exception as e:
-        logger.error(f"Error in send_daily_check: {e}")
-
-@app.task
-def send_notification_with_keyboard(user_id, message):
+    logger.info(f"Running send_daily_check at {now}")
+    
+    # Send a summary to the admin
+    # Check maintenance mode
     try:
-        keyboard = InlineKeyboardMarkup()
-        keyboard.row(
-            InlineKeyboardButton("Yes", callback_data="daily_check_yes"),
-            InlineKeyboardButton("No", callback_data="daily_check_no")
-        )
-        bot.send_message(user_id, message, reply_markup=keyboard)
-        logger.info(f"Message with keyboard sent successfully to user {user_id}")
+        if MAINTENANCE_MODE:
+            if ADMIN_ID:
+                try:
+                    users_count = db.get_total_users_count()
+                    activities_count = db.get_activities_count_last_24h(now - timedelta(days=1), now)
+                    admin_message = f"Daily Summary:\n"
+                    admin_message += f"Total Users: {users_count}\n"
+                    admin_message += f"Activities in the last 24 hours: {activities_count}\n"
+                    admin_message += f"Current time in Nicosia: {now.strftime('%Y-%m-%d %H:%M:%S')}"
+                    bot.send_message(ADMIN_ID, admin_message)
+                    logger.info(f"Sent daily summary to admin {ADMIN_ID}")
+                except Exception as e:
+                    logger.error(f"Failed to send daily summary to admin: {str(e)}")
+            else:
+                logger.warning("Admin Telegram ID not set in config")
+            return
     except Exception as e:
-        logger.error(f"Failed to send message with keyboard to user {user_id}: {e}")
+        logger.error(f"Failed to check maintenance mode: {str(e)}")
+        # Continue with the daily check even if we can't check maintenance mode
+    
+
+    # Only send the daily check if it's between 19:00 and 19:59 Nicosia time
+    if now.hour == 19:
+        users = db.get_all_users()
+        logger.info(f"Sending daily check to {len(users)} users")
+        for user in users:
+            user_id = user[1]  # Assuming user[1] is the telegram_id
+            send_daily_check_to_user(user_id)
+            logger.info(f"Sent daily check to user {user_id}")
+    else:
+        logger.info("Not sending daily check (outside of scheduled hour)")
+
+def send_daily_check_to_user(user_id):
+    keyboard = types.InlineKeyboardMarkup()
+    keyboard.row(
+        types.InlineKeyboardButton("Yes", callback_data="daily_check_yes"),
+        types.InlineKeyboardButton("No", callback_data="daily_check_no")
+    )
+    try:
+        bot.send_message(user_id, "Did you exercise today?", reply_markup=keyboard)
+        logger.info(f"Successfully sent message to user {user_id}")
+    except Exception as e:
+        logger.error(f"Failed to send message to user {user_id}: {str(e)}")
 
 @app.task
 def send_encouragement_and_quote(user_id, was_active):
-    try:
-        quote = random.choice(QUOTES)
-        
-        if was_active:
-            encouragement = random.choice(ENCOURAGEMENTS)
-            message = f"{encouragement}\n\n{quote}"
-        else:
-            message = f"Remember to stay active! Here's a quote to inspire you:\n\n{quote}"
-
-        bot.send_message(user_id, message)
-        
-        logger.info(f"Encouragement and quote sent to user (ID: {user_id}).")
+    if was_active:
+        message = random.choice(ENCOURAGEMENTS) + "\n\n"
+    else:
+        message = "Don't worry if you missed today. Tomorrow is a new opportunity! 🌟\n\n"
     
-    except Exception as e:
-        logger.error(f"Error in send_encouragement_and_quote: {e}")
+    quote = get_random_quote()
+    message += f"Here's a quote to keep you motivated:\n\n{quote}"
+    
+    bot.send_message(user_id, message)
 
-if __name__ == '__main__':
-    logger.info("Starting Celery app")
-    app.start()
+def get_random_quote():
+    return random.choice(QUOTES)
+
+# ... (rest of your tasks.py file)
