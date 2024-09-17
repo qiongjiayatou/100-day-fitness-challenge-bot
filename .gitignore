@@ -7,9 +7,6 @@ postgres_data/
 celerybeat-schedule
 celerybeat.pid
 
-# Redis dump file
-dump.rdb
-
 # Logs
 *.log
 
@@ -17,12 +14,5 @@ dump.rdb
 .vscode/
 .idea/
 
-# Docker-related files
-docker-compose.override.yml
-
-# Temporary files
-*.tmp
-*.swp
-*~
-
 *.sql
+*.sql.gz

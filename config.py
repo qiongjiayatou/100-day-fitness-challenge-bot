@@ -11,4 +11,5 @@ POSTGRES_HOST=os.environ.get("POSTGRES_HOST", "db")
 POSTGRES_PORT=os.environ.get("POSTGRES_PORT", "5432")
 
 # Other configurations
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
+MAINTENANCE_MODE = os.environ.get("MAINTENANCE_MODE", "false").lower() == "true"
+ADMIN_ID = os.environ.get("ADMIN_ID")
