@@ -104,11 +104,23 @@ class Database:
         finally:
             self.release_connection(conn)
 
-    def get_reference_activities(self, user_id):
+    def get_reference_activities(self, user_id, limit=None):
+        query = """
+        SELECT id, activity_name, activity_type 
+        FROM reference_activities 
+        WHERE user_id = %s 
+        ORDER BY id DESC
+        """
+        if limit:
+            query += " LIMIT %s"
+            params = (user_id, limit)
+        else:
+            params = (user_id,)
+        
         conn = self.get_connection()
         try:
             with conn.cursor() as cur:
-                cur.execute("SELECT id, activity_name, activity_type FROM reference_activities WHERE user_id = %s", (user_id,))
+                cur.execute(query, params)
                 return cur.fetchall()
         finally:
             self.release_connection(conn)
@@ -172,17 +184,19 @@ class Database:
         finally:
             self.release_connection(conn)
 
-    def get_recent_activities(self, user_id):
+    def get_recent_activities(self, user_id, limit=10):
+        query = """
+        SELECT a.id, ra.activity_name, a.value, ra.activity_type, a.created_at
+        FROM activities a
+        JOIN reference_activities ra ON a.reference_activity_id = ra.id
+        WHERE a.user_id = %s
+        ORDER BY a.created_at DESC
+        LIMIT %s
+        """
         conn = self.get_connection()
         try:
             with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT a.id, r.activity_name, a.value, r.activity_type, a.created_at
-                    FROM activities a
-                    JOIN reference_activities r ON a.reference_activity_id = r.id
-                    WHERE a.user_id = %s
-                    ORDER BY a.created_at DESC
-                """, (user_id,))
+                cur.execute(query, (user_id, limit))
                 return cur.fetchall()
         finally:
             self.release_connection(conn)
@@ -360,6 +374,29 @@ class Database:
             with conn.cursor() as cur:
                 cur.execute("SELECT id, telegram_id, username, first_name, last_name, is_admin FROM users")
                 return cur.fetchall()
+        finally:
+            self.release_connection(conn)
+
+    def get_activities_count_last_24h(self, start_time, end_time):
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                query = """
+                SELECT COUNT(*) 
+                FROM activities 
+                WHERE created_at BETWEEN %s AND %s
+                """
+                cur.execute(query, (start_time, end_time))
+                return cur.fetchone()[0]
+        finally:
+            self.release_connection(conn)
+
+    def get_total_users_count(self):
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM users")
+                return cur.fetchone()[0]
         finally:
             self.release_connection(conn)
 
