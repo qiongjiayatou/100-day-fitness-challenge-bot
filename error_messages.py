@@ -1,0 +1,12 @@
+# Standard error messages
+MAINTENANCE_MODE_MESSAGE = "The bot is currently under maintenance. Please try again later."
+GENERAL_ERROR_MESSAGE = "An error occurred. Please try again later."
+INVALID_INPUT_MESSAGE = "Invalid input. Please try again."
+OPERATION_CANCELLED_MESSAGE = "Operation cancelled."
+NO_ACTIVITIES_MESSAGE = "You don't have any activities yet."
+NO_REFERENCE_ACTIVITIES_MESSAGE = "You don't have any reference activities. Please add one first using /addref"
+INVALID_ACTIVITY_SELECTION_MESSAGE = "Invalid activity selection. Please choose an activity from the list."
+INVALID_TIME_FORMAT_MESSAGE = "Invalid time format. Please use HH:MM:SS."
+INVALID_REPS_FORMAT_MESSAGE = "Invalid input. Please enter a positive integer for reps."
+FAILED_TO_DELETE_ACTIVITY_MESSAGE = "Failed to delete the activity. It may not exist or you don't have permission to delete it."
+FAILED_TO_UPDATE_ACTIVITY_MESSAGE = "Failed to update the activity. It may not exist or you don't have permission to update it."
