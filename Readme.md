@@ -4,7 +4,6 @@ This is a Telegram bot designed to help users achieve their fitness goals by com
 
 ## Features
 
-- **User Authentication:** Users can register and authenticate using a password.
 - **Activity Tracking:** Users can add, update, delete, and list their activities.
 - **Streak Management:** The bot keeps track of the user's streak for each activity.
 - **Daily Reminders:** The bot sends daily reminders to users to complete their activities.

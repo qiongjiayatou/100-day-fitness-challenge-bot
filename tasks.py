@@ -1,25 +1,25 @@
 from celery import Celery
 from celery.schedules import crontab
-import telebot
+from telebot import TeleBot
 import types
 import os
 from database import Database  # Import the Database class
 import random
-import logging
+from logger import log_error, log_info
 from config import ADMIN_ID, BOT_TOKEN
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import pytz
 from datetime import datetime, timedelta
 from config import *
 
-# Set up logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-logger.info("Tasks module initialized")
-
 app = Celery('tasks', broker=REDIS_URL)
-bot = telebot.TeleBot(BOT_TOKEN)
+
+# Update the Celery configuration
+app.conf.update(
+    broker_connection_retry_on_startup=True  # Add this line
+)
+
+bot = TeleBot(BOT_TOKEN)
 
 # Create a Database instance
 db = Database()
@@ -83,98 +83,96 @@ QUOTES = [
 
 # Add this list of encouraging phrases
 ENCOURAGEMENTS = [
-    "Great job! Keep up the good work! 💪",
-    "That's the spirit! Every step counts towards your goal. 🏃‍♂️",
-    "You're making progress! Remember, consistency is key. 🔑",
-    "Awesome effort! Your future self will thank you. 🙌",
-    "You're crushing it! Stay motivated and keep pushing. 💥",
-    "Fantastic! Small daily improvements lead to stunning results. 🌟",
-    "The only bad workout is the one that didn't happen.",
-    "Strength doesn't come from what you can do. It comes from overcoming the things you once thought you couldn't.",
-    "The difference between try and triumph is just a little umph!",
-    "The only way to define your limits is by going beyond them.",
-    "Success is walking from failure to failure with no loss of enthusiasm.",
-    "The body achieves what the mind believes.",
-    "Don't wish for it, work for it.",
-    "Your body can stand almost anything. It's your mind that you have to convince.",
+    "Did you workout today?",
+    "Have you exercised today?",
+    "Did you get your heart rate up today?",
+    "Have you moved your body today?",
+    "Did you stretch or do any physical activity?",
+    "Have you taken time for exercise today?",
+    "Did you engage in any sports or fitness activities?",
+    "Have you done any strength training today?",
+    "Did you go for a walk or run today?",
+    "Have you done any yoga or pilates?",
+    "Did you participate in any group fitness classes?",
+    "Have you done any cardio exercises today?",
+    "Did you take the stairs instead of the elevator?",
+    "Have you done any bodyweight exercises at home?",
+    "Did you play any active games or sports today?",
+    "Have you done any swimming or water exercises?",
+    "Did you do any flexibility or mobility work today?",
 ]
 
 @app.on_after_configure.connect
 def setup_periodic_tasks(sender, **kwargs):
-    # Schedule the daily check task
+    # Schedule the encouragement task to run every minute
     sender.add_periodic_task(
-        # crontab(minute='*'),  # This will run the task every minute
-        crontab(minute=0),  # This will run the task every hour at the start of the hour
-        send_daily_check.s(),
+        # crontab(minute='*'),
+        # check_activity_and_send_encouragement.s(1)
+        crontab(hour='18', minute='0', tz='Europe/Nicosia'),  # This will run the task every day at 6pm Nicosia time
+        send_encouragement.s()
     )
 
 @app.task
-def send_daily_check():
+def send_encouragement():
     nicosia_tz = pytz.timezone('Europe/Nicosia')
     now = datetime.now(nicosia_tz)
     
-    logger.info(f"Running send_daily_check at {now}")
+    log_info(f"Running send_encouragement at {now}")
     
-    # Send a summary to the admin
-    # Check maintenance mode
     try:
-        if MAINTENANCE_MODE:
-            if ADMIN_ID:
-                try:
-                    users_count = db.get_total_users_count()
-                    activities_count = db.get_activities_count_last_24h(now - timedelta(days=1), now)
-                    admin_message = f"Daily Summary:\n"
-                    admin_message += f"Total Users: {users_count}\n"
-                    admin_message += f"Activities in the last 24 hours: {activities_count}\n"
-                    admin_message += f"Current time in Nicosia: {now.strftime('%Y-%m-%d %H:%M:%S')}"
-                    bot.send_message(ADMIN_ID, admin_message)
-                    logger.info(f"Sent daily summary to admin {ADMIN_ID}")
-                except Exception as e:
-                    logger.error(f"Failed to send daily summary to admin: {str(e)}")
-            else:
-                logger.warning("Admin Telegram ID not set in config")
-            return
-    except Exception as e:
-        logger.error(f"Failed to check maintenance mode: {str(e)}")
-        # Continue with the daily check even if we can't check maintenance mode
-    
-
-    # Only send the daily check if it's between 19:00 and 19:59 Nicosia time
-    if now.hour == 19:
         users = db.get_all_users()
-        logger.info(f"Sending daily check to {len(users)} users")
+        log_info(f"Checking activity for {len(users)} users")
         for user in users:
-            user_id = user[1]  # Assuming user[1] is the telegram_id
-            send_daily_check_to_user(user_id)
-            logger.info(f"Sent daily check to user {user_id}")
-    else:
-        logger.info("Not sending daily check (outside of scheduled hour)")
-
-def send_daily_check_to_user(user_id):
-    keyboard = types.InlineKeyboardMarkup()
-    keyboard.row(
-        types.InlineKeyboardButton("Yes", callback_data="daily_check_yes"),
-        types.InlineKeyboardButton("No", callback_data="daily_check_no")
-    )
-    try:
-        bot.send_message(user_id, "Did you exercise today?", reply_markup=keyboard)
-        logger.info(f"Successfully sent message to user {user_id}")
+            user_id = user[0]  # Assuming user[0] is the user_id
+            check_activity_and_send_encouragement.delay(user_id)
+            log_info(f"Scheduled activity check and encouragement for user {user_id}")
     except Exception as e:
-        logger.error(f"Failed to send message to user {user_id}: {str(e)}")
+        log_error(f"Failed in send_encouragement: {str(e)}")
 
 @app.task
-def send_encouragement_and_quote(user_id, was_active):
-    if was_active:
-        message = random.choice(ENCOURAGEMENTS) + "\n\n"
+def check_activity_and_send_encouragement(user_id):
+    nicosia_tz = pytz.timezone('Europe/Nicosia')
+    now = datetime.now(nicosia_tz)
+    today = now.date()
+    
+    try:
+        # Check if the user was active today
+        was_active = db.was_user_active_today(user_id, today)
+        
+        if not was_active:
+            send_encouragement_and_quote.delay(user_id)
+            log_info(f"User {user_id} was not active today, sending encouragement")
+        else:
+            log_info(f"User {user_id} was already active today, skipping encouragement")
+    except Exception as e:
+        log_error(f"Failed to check activity for user {user_id}: {str(e)}")
+
+@app.task
+def send_encouragement_and_quote(user_id, custom_message=None):
+    if custom_message:
+        message = custom_message
     else:
-        message = "Don't worry if you missed today. Tomorrow is a new opportunity! 🌟\n\n"
+        message = get_random_encouragement() + "\n\n"
+        quote = get_random_quote()
+        message += f"Here's a quote to keep you motivated:\n\n{quote}"
     
-    quote = get_random_quote()
-    message += f"Here's a quote to keep you motivated:\n\n{quote}"
-    
-    bot.send_message(user_id, message)
+    try:
+        # Get user's telegram_id from the database
+        user = db.get_user_by_id(user_id)
+        if user:
+            telegram_id = user[1]  # Assuming telegram_id is the second column in the user tuple
+        else:
+            log_error(f"User {user_id} not found in the database")
+            return  # Exit the function if user is not found
+        bot.send_message(telegram_id, message)
+        log_info(f"Successfully sent message to user {user_id}")
+    except Exception as e:
+        log_error(f"Failed to send message to user {user_id}: {str(e)}")
 
 def get_random_quote():
     return random.choice(QUOTES)
+
+def get_random_encouragement():
+    return random.choice(ENCOURAGEMENTS)
 
 # ... (rest of your tasks.py file)

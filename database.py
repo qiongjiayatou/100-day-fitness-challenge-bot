@@ -1,15 +1,10 @@
-import psycopg2
 from psycopg2 import pool
-import os
-from dotenv import load_dotenv
 from config import *
 
 
-load_dotenv()
-
 class Database:
     def __init__(self):
-        self.connection_pool = psycopg2.pool.SimpleConnectionPool(
+        self.connection_pool = pool.SimpleConnectionPool(
             1, 20,
             host=POSTGRES_HOST,
             dbname=POSTGRES_DB,
@@ -85,6 +80,15 @@ class Database:
         try:
             with conn.cursor() as cur:
                 cur.execute("SELECT * FROM users WHERE telegram_id = %s", (telegram_id,))
+                return cur.fetchone()
+        finally:
+            self.release_connection(conn)
+
+    def get_user_by_id(self, user_id):
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT * FROM users WHERE id = %s", (user_id,))
                 return cur.fetchone()
         finally:
             self.release_connection(conn)
@@ -400,5 +404,41 @@ class Database:
         finally:
             self.release_connection(conn)
 
-db = Database()
+    def was_user_active_today(self, user_id, date):
+        query = """
+        SELECT COUNT(*) FROM activities 
+        JOIN users ON users.id = activities.user_id
+        WHERE users.id = %s AND DATE(activities.created_at) = %s
+        """
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(query, (user_id, date))
+                count = cur.fetchone()[0]
+                return count > 0
+        finally:
+            self.release_connection(conn)
 
+    def get_activity_streak(self, user_id):
+        query = """
+        WITH daily_activity AS (
+            SELECT user_id, reference_activity_id, DATE(created_at) as activity_date
+            FROM activities
+            WHERE user_id = %s
+            GROUP BY user_id, reference_activity_id, DATE(created_at)
+        ),
+        activity_counts AS (
+            SELECT user_id, reference_activity_id, COUNT(*) as days_active
+            FROM daily_activity
+            GROUP BY user_id, reference_activity_id
+        )
+        SELECT u.id, u.telegram_id, u.username, ra.activity_name, COALESCE(ac.days_active, 0) as days_active
+        FROM users u
+        JOIN reference_activities ra ON ra.user_id = u.id
+        LEFT JOIN activity_counts ac ON u.id = ac.user_id AND ra.id = ac.reference_activity_id
+        WHERE u.id = %s
+        ORDER BY ra.activity_name;
+        """
+        return self.execute_query(query, (user_id, user_id))
+
+db = Database()

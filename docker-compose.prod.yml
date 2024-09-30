@@ -9,18 +9,10 @@ services:
       - redis
     env_file:
       - .env
-    volumes:
-      - .:/app
     restart: always
     ports:
       - 8443:8443
-    command: watchmedo auto-restart --directory=/app --pattern=*.py --recursive -- python /app/main.py
-    develop:
-      watch:
-        - action: sync+restart
-          path: /app/*.py 
-          target: /app
-
+    command: python /app/main.py
     networks:
       - app-network
 
@@ -28,17 +20,17 @@ services:
     image: postgres:16
     container_name: hdays_db
     volumes:
-      - ./postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
     env_file:
       - .env  
     restart: always
-    ports:
-      - 5455:5432
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 5
+    ports:
+      - 5455:5432
     networks:
       - app-network
 
@@ -59,8 +51,6 @@ services:
         condition: service_started
     env_file:
       - .env
-    volumes:
-      - .:/app
     restart: always
     command: celery -A tasks worker --loglevel=info
     networks:
@@ -74,8 +64,6 @@ services:
       - redis
     env_file:
       - .env
-    volumes:
-      - .:/app
     restart: always
     command: celery -A tasks beat --loglevel=info
     networks:
@@ -83,7 +71,6 @@ services:
 
 volumes:
   postgres_data:
-    driver: local
 
 networks:
   app-network:
