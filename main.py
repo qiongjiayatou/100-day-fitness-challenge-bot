@@ -1,12 +1,10 @@
 from bot_handlers import create_bot
-import logging
-
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from logger import logger, log_error, log_info
 
 if __name__ == "__main__":
-    bot = create_bot()
-
-    logger.info("Bot started. Polling for updates...")
-    bot.polling(none_stop=True)
+    try:
+        log_info("Starting the bot...")
+        bot = create_bot()
+        bot.polling(none_stop=True)
+    except Exception as e:
+        log_error(f"An error occurred while running the bot: {str(e)}")

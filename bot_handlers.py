@@ -7,6 +7,7 @@ import pytz
 from datetime import datetime
 import logging
 from tasks import send_encouragement_and_quote
+from logger import logger, log_error, log_info
 
 # Add this constant at the top of your file
 NICOSIA_TIMEZONE = pytz.timezone('Europe/Nicosia')
@@ -16,7 +17,6 @@ db = Database()
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
 
 def create_bot():
     bot = telebot.TeleBot(BOT_TOKEN)
@@ -45,16 +45,18 @@ def register_handlers(bot: TeleBot):
         try:
             user = db.get_user(telegram_id)
             
+            message_text = "Hey there! Are you ready for a challenge? I bet you do!"
             if user:
-                # Update user information
                 db.update_user(telegram_id, username, first_name, last_name)
-                bot.reply_to(message, "Welcome back! Your information has been updated.")
+                bot.reply_to(message, message_text)
+                log_info(f"User {telegram_id} information updated")
             else:
-                # Insert new user
                 db.add_user(telegram_id, username, first_name, last_name)
-                bot.reply_to(message, "Welcome! You've been successfully registered.")
+                bot.reply_to(message, message_text)
+                log_info(f"New user {telegram_id} registered")
         except Exception as e:
-            bot.reply_to(message, f"An error occurred while processing your request: {str(e)}")
+            log_error(f"Error in start command: {str(e)}")
+            bot.reply_to(message, "An error occurred while processing your request. Please try again later.")
 
     @bot.message_handler(commands=['help'])
     def help(message: Message):
@@ -82,6 +84,7 @@ def register_handlers(bot: TeleBot):
         /exit - Cancel the current operation (can be used during multi-step commands)
         """
         bot.reply_to(message, help_text)
+        log_info(f"Help command used by user {message.from_user.id}")
 
     @bot.message_handler(commands=['add'])
     def add_activity(message: types.Message):
@@ -100,11 +103,13 @@ def register_handlers(bot: TeleBot):
                     keyboard.add(f"{activity_id}: {activity_name} ({activity_type})")
                 bot.reply_to(message, "Please choose an activity:", reply_markup=keyboard)
                 bot.register_next_step_handler(message, process_add_activity_choice, activities)
+                log_info(f"User {telegram_id} started adding an activity")
             else:
                 bot.reply_to(message, "You don't have any reference activities. Please add one first using /addref")
+                log_info(f"User {telegram_id} attempted to add activity but has no reference activities")
         except Exception as e:
-            logger.exception("Error in add_activity")
-            bot.reply_to(message, f"An error occurred: {str(e)}")
+            log_error(f"Error in add_activity for user {telegram_id}: {str(e)}")
+            bot.reply_to(message, "An error occurred. Please try again later.")
 
     def process_add_activity_choice(message: Message, valid_activities):
         if check_maintenance(message, bot):
@@ -130,8 +135,8 @@ def register_handlers(bot: TeleBot):
                 bot.reply_to(message, f"Adding activity: {activity_name}\nPlease enter the number of reps:", reply_markup=types.ReplyKeyboardRemove())
             bot.register_next_step_handler(message, process_add_activity_value, reference_activity_id, activity_type)
         except Exception as e:
-            logger.exception("Error in process_add_activity_choice")
-            bot.reply_to(message, f"An error occurred while processing your choice: {str(e)}")
+            log_error(f"Error in process_add_activity_choice: {str(e)}")
+            bot.reply_to(message, "An error occurred. Please try again.")
             return add_activity(message)
 
     def process_add_activity_value(message: Message, reference_activity_id, activity_type):
@@ -168,8 +173,8 @@ def register_handlers(bot: TeleBot):
                 bot.reply_to(message, "Enter valid number of reps:")
             bot.register_next_step_handler(message, process_add_activity_value, reference_activity_id, activity_type)
         except Exception as e:
-            logger.exception("Error in process_add_activity_value")
-            bot.reply_to(message, f"Error adding activity: {str(e)}")
+            log_error(f"Error in process_add_activity_value: {str(e)}")
+            bot.reply_to(message, "An error occurred while adding the activity. Please try again.")
 
     def parse_activity_value(value_input, activity_type):
         if activity_type == 'time':
@@ -225,8 +230,8 @@ def register_handlers(bot: TeleBot):
             else:
                 bot.reply_to(message, "You don't have any recent activities to update.")
         except Exception as e:
-            logger.exception("Error in update_activity")
-            bot.reply_to(message, f"An error occurred: {str(e)}")
+            log_error(f"Error in update_activity: {str(e)}")
+            bot.reply_to(message, "An error occurred. Please try again later.")
 
     def process_update_activity_choice(message: types.Message, activities):
         if check_maintenance(message, bot):
@@ -253,8 +258,8 @@ def register_handlers(bot: TeleBot):
                 bot.reply_to(message, f"Updating: {activity_name}\nCurrent: {current_value} reps\nEnter new number of reps:", reply_markup=types.ReplyKeyboardRemove())
             bot.register_next_step_handler(message, process_update_activity_value, activity_id, activity_type)
         except Exception as e:
-            logger.exception("Error in process_update_activity_choice")
-            bot.reply_to(message, f"An error occurred while processing your choice: {str(e)}")
+            log_error(f"Error in process_update_activity_choice: {str(e)}")
+            bot.reply_to(message, "An error occurred. Please try again.")
             return update_activity(message)
 
     def process_update_activity_value(message: Message, activity_id, activity_type):
@@ -275,10 +280,12 @@ def register_handlers(bot: TeleBot):
             value_str = format_activity_value(new_value, activity_type)
             bot.reply_to(message, f"Activity updated successfully! New value: {value_str}")
         except ValueError as e:
-            bot.reply_to(message, str(e))
+            log_error(f"Error in process_update_activity_value: {str(e)}")
+            bot.reply_to(message, "Invalid input. Please try again.")
             bot.register_next_step_handler(message, process_update_activity_value, activity_id, activity_type)
         except Exception as e:
-            bot.reply_to(message, f"An error occurred while updating the activity: {str(e)}")
+            log_error(f"Error in process_update_activity_value: {str(e)}")
+            bot.reply_to(message, "An error occurred while updating the activity. Please try again.")
 
     @bot.message_handler(commands=['delete'])
     def delete_activity(message: Message):
@@ -304,8 +311,8 @@ def register_handlers(bot: TeleBot):
             else:
                 bot.reply_to(message, "You don't have any recent activities to delete.")
         except Exception as e:
-            logger.exception("Error in delete_activity")
-            bot.reply_to(message, f"An error occurred: {str(e)}")
+            log_error(f"Error in delete_activity: {str(e)}")
+            bot.reply_to(message, "An error occurred. Please try again later.")
 
     def process_delete_activity_choice(message: Message, activities):
         if check_maintenance(message, bot):
@@ -332,10 +339,12 @@ def register_handlers(bot: TeleBot):
             else:
                 bot.reply_to(message, "Failed to delete the activity. It may not exist or you don't have permission to delete it.", reply_markup=types.ReplyKeyboardRemove())
         except ValueError:
+            log_error(f"Error in process_delete_activity_choice: {str(e)}")
             bot.reply_to(message, "Invalid selection. Please choose an activity from the list.")
             return delete_activity(message)
         except Exception as e:
-            bot.reply_to(message, f"An error occurred while deleting the activity: {str(e)}", reply_markup=types.ReplyKeyboardRemove())
+            log_error(f"Error in process_delete_activity_choice: {str(e)}")
+            bot.reply_to(message, "An error occurred while deleting the activity. Please try again.")
 
     def process_delete_activity_choice(message: Message, activities):
         if check_maintenance(message, bot):
@@ -358,10 +367,12 @@ def register_handlers(bot: TeleBot):
             db.delete_activity(activity_id, message.from_user.id)
             bot.reply_to(message, f"Activity '{activity_name}' has been deleted successfully!", reply_markup=types.ReplyKeyboardRemove())
         except ValueError:
+            log_error(f"Error in process_delete_activity_choice: {str(e)}")
             bot.reply_to(message, "Invalid selection. Please choose an activity from the list.")
             return delete_activity(message)
         except Exception as e:
-            bot.reply_to(message, f"An error occurred while deleting the activity: {str(e)}", reply_markup=types.ReplyKeyboardRemove())
+            log_error(f"Error in process_delete_activity_choice: {str(e)}")
+            bot.reply_to(message, "An error occurred while deleting the activity. Please try again.")
 
     @bot.message_handler(commands=['list'])
     def list_activities(message: Message):
@@ -385,17 +396,16 @@ def register_handlers(bot: TeleBot):
                         response += f"🔹 {activity_name}\n"
                         response += f"   {value_str} | {date_str}\n\n"
                     except Exception as e:
-                        logger.exception(f"Error formatting activity {activity[0]}")
+                        log_error(f"Error formatting activity {activity[0]}: {str(e)}")
             else:
                 response = "No activities logged yet."
             
             bot.reply_to(message, response)
         except Exception as e:
-            logger.exception("Error in list_activities")
-            bot.reply_to(message, f"Error fetching activities: {str(e)}")
+            log_error(f"Error in list_activities: {str(e)}")
+            bot.reply_to(message, "An error occurred while fetching your activities. Please try again later.")
 
     @bot.message_handler(commands=['stats'])
-    
     def get_stats(message: Message):
         if check_maintenance(message, bot):
             return
@@ -407,26 +417,26 @@ def register_handlers(bot: TeleBot):
             unique_activities = db.get_unique_activities_count(user[0])
             most_frequent = db.get_most_frequent_activity(user[0])
             activities = db.get_all_activities(user[0])
+            activity_streaks = db.get_activity_streak(user[0])
 
-            logger.debug(f"Total activities: {total_activities}")
-            logger.debug(f"Unique activities: {unique_activities}")
-            logger.debug(f"Most frequent activity: {most_frequent}")
-            logger.debug(f"All activities: {activities}")
+            log_info(f"Total activities: {total_activities}")
+            log_info(f"Unique activities: {unique_activities}")
+            log_info(f"Most frequent activity: {most_frequent}")
+            log_info(f"All activities: {activities}")
+            log_info(f"Activity streaks: {activity_streaks}")
 
             # Calculate totals
             activity_totals, total_reps, total_duration = calculate_activity_totals(activities)
 
             # Format the response
             stats_message = format_stats_message(total_activities, unique_activities, most_frequent, 
-                                                 total_reps, total_duration, activity_totals)
+                                                 total_reps, total_duration, activity_totals, activity_streaks)
 
             bot.reply_to(message, stats_message)
+            log_info(f"Stats retrieved for user {telegram_id}")
         except Exception as e:
-            error_message = f"An error occurred while fetching your statistics: {str(e)}\n"
-            error_message += f"Error type: {type(e).__name__}\n"
-            error_message += f"Error details: {str(e.args)}"
-            bot.reply_to(message, error_message)
-            logger.exception("Error in get_stats")
+            log_error(f"Error in get_stats for user {telegram_id}: {str(e)}")
+            bot.reply_to(message, "An error occurred while fetching your statistics. Please try again later.")
 
     def calculate_activity_totals(activities):
         activity_totals = {}
@@ -446,7 +456,7 @@ def register_handlers(bot: TeleBot):
         
         return activity_totals, total_reps, total_duration
 
-    def format_stats_message(total_activities, unique_activities, most_frequent, total_reps, total_duration, activity_totals):
+    def format_stats_message(total_activities, unique_activities, most_frequent, total_reps, total_duration, activity_totals, activity_streaks):
         stats_message = f"📊 Your Fitness Challenge Statistics:\n\n"
         stats_message += f"Total activities logged: {total_activities}\n"
         stats_message += f"Unique activities: {unique_activities}\n"
@@ -462,6 +472,16 @@ def register_handlers(bot: TeleBot):
                 stats_message += f"  Total reps: {totals['reps']}\n"
             if totals['time'] > 0:
                 stats_message += f"  Total duration: {format_duration(totals['time'])}\n"
+            
+            # Add streak information with correct grammatical agreement
+            streak = next((s for s in activity_streaks if s[3] == activity), None)
+            if streak:
+                days = streak[4]
+                if days == 1:
+                    streak_text = "1 day"
+                else:
+                    streak_text = f"{days} days"
+                stats_message += f"  Current streak: {streak_text}\n"
             
             last_activity = db.get_last_activity(activity)
             if last_activity:
@@ -549,8 +569,8 @@ def register_handlers(bot: TeleBot):
             else:
                 bot.reply_to(message, "You don't have any recent reference activities to update.")
         except Exception as e:
-            logger.exception("Error in update_reference_activity")
-            bot.reply_to(message, f"An error occurred: {str(e)}")
+            log_error(f"Error in update_reference_activity: {str(e)}")
+            bot.reply_to(message, "An error occurred while updating the reference activity. Please try again later.")
 
     def process_update_reference_activity_choice(message: Message, activities):
         if check_maintenance(message, bot):
@@ -576,8 +596,8 @@ def register_handlers(bot: TeleBot):
             bot.reply_to(message, f"Updating reference activity: {current_name}\nCurrent type: {current_type}\nEnter new name (or 'skip' to keep current):", reply_markup=types.ReplyKeyboardRemove())
             bot.register_next_step_handler(message, process_update_reference_activity_name, activity_id, current_name, current_type)
         except Exception as e:
-            logger.exception("Error in process_update_reference_activity_choice")
-            bot.reply_to(message, f"An error occurred while processing your choice: {str(e)}")
+            log_error(f"Error in process_update_reference_activity_choice: {str(e)}")
+            bot.reply_to(message, "An error occurred while processing your choice. Please try again.")
             return update_reference_activity(message)
 
     def process_update_reference_activity_name(message: Message, activity_id, current_name, current_type):
@@ -618,7 +638,8 @@ def register_handlers(bot: TeleBot):
             else:
                 bot.reply_to(message, "Failed to update the reference activity. It may not exist or you don't have permission to update it.", reply_markup=types.ReplyKeyboardRemove())
         except Exception as e:
-            bot.reply_to(message, f"An error occurred while updating the reference activity: {str(e)}", reply_markup=types.ReplyKeyboardRemove())
+            log_error(f"Error in process_update_reference_activity_type: {str(e)}")
+            bot.reply_to(message, "An error occurred while updating the reference activity. Please try again later.")
 
     @bot.message_handler(commands=['deleteref'])
     def delete_reference_activity(message: Message):
@@ -641,8 +662,8 @@ def register_handlers(bot: TeleBot):
             else:
                 bot.reply_to(message, "You don't have any recent reference activities to delete.")
         except Exception as e:
-            logger.exception("Error in delete_reference_activity")
-            bot.reply_to(message, f"An error occurred: {str(e)}")
+            log_error(f"Error in delete_reference_activity: {str(e)}")
+            bot.reply_to(message, "An error occurred while deleting the reference activity. Please try again later.")
 
     def process_delete_reference_activity_choice(message: Message, activities):
         if check_maintenance(message, bot):
@@ -679,8 +700,8 @@ def register_handlers(bot: TeleBot):
             else:
                 process_delete_reference_activity(message, activity_id)
         except Exception as e:
-            logger.exception("Error in process_delete_reference_activity_choice")
-            bot.reply_to(message, f"An error occurred while processing your choice: {str(e)}")
+            log_error(f"Error in process_delete_reference_activity_choice: {str(e)}")
+            bot.reply_to(message, "An error occurred while processing your choice. Please try again.")
             return delete_reference_activity(message)
 
     def process_delete_reference_activity_confirm(message: Message, activity_id):
@@ -705,7 +726,8 @@ def register_handlers(bot: TeleBot):
             else:
                 bot.reply_to(message, "Failed to delete the reference activity. It may not exist or you don't have permission to delete it.", reply_markup=types.ReplyKeyboardRemove())
         except Exception as e:
-            bot.reply_to(message, f"An error occurred while deleting the reference activity: {str(e)}", reply_markup=types.ReplyKeyboardRemove())
+            log_error(f"Error in process_delete_reference_activity: {str(e)}")
+            bot.reply_to(message, "An error occurred while deleting the reference activity. Please try again later.")
 
     @bot.message_handler(commands=['exit'])
     def exit_command(message: Message):
