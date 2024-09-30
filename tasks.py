@@ -106,8 +106,10 @@ ENCOURAGEMENTS = [
 def setup_periodic_tasks(sender, **kwargs):
     # Schedule the encouragement task to run every minute
     sender.add_periodic_task(
-        crontab(minute='*'),  # This will run the task every minute
-        send_encouragement.s(),
+        # crontab(minute='*'),
+        # check_activity_and_send_encouragement.s(1)
+        crontab(hour='18', minute='0', tz='Europe/Nicosia'),  # This will run the task every day at 6pm Nicosia time
+        send_encouragement.s()
     )
 
 @app.task
@@ -118,28 +120,12 @@ def send_encouragement():
     log_info(f"Running send_encouragement at {now}")
     
     try:
-        if ADMIN_ID:
-            try:
-                users_count = db.get_total_users_count()
-                activities_count = db.get_activities_count_last_24h(now - timedelta(days=1), now)
-                admin_message = f"Maintenance Mode Update:\n"
-                admin_message += f"Total Users: {users_count}\n"
-                admin_message += f"Activities in the last 24 hours: {activities_count}\n"
-                admin_message += f"Current time in Nicosia: {now.strftime('%Y-%m-%d %H:%M:%S')}"
-                # send_encouragement_and_quote.delay(ADMIN_ID)
-                check_activity_and_send_encouragement.delay(1)
-                log_info(f"Sent maintenance update to admin {ADMIN_ID}")
-            except Exception as e:
-                log_error(f"Failed to send maintenance update to admin: {str(e)}")
-        else:
-            log_info("Admin Telegram ID not set in config")
-    
-            # users = db.get_all_users()
-            # log_info(f"Checking activity for {len(users)} users")
-            # for user in users:
-            #     user_id = user[0]  # Assuming user[0] is the user_id
-            #     check_activity_and_send_encouragement.delay(user_id)
-                # log_info(f"Scheduled activity check and encouragement for user {user_id}")
+        users = db.get_all_users()
+        log_info(f"Checking activity for {len(users)} users")
+        for user in users:
+            user_id = user[0]  # Assuming user[0] is the user_id
+            check_activity_and_send_encouragement.delay(user_id)
+            log_info(f"Scheduled activity check and encouragement for user {user_id}")
     except Exception as e:
         log_error(f"Failed in send_encouragement: {str(e)}")
 
