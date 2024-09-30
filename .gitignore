@@ -16,3 +16,5 @@ celerybeat.pid
 
 *.sql
 *.sql.gz
+
+/server
