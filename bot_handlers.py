@@ -20,11 +20,11 @@ db = Database()
 logging.basicConfig(level=logging.DEBUG)
 
 def create_bot():
-    bot = telebot.TeleBot(BOT_TOKEN)
+    bot = TeleBot(BOT_TOKEN)
     register_handlers(bot)
     return bot
 
-def check_maintenance(message: Message, bot: telebot.TeleBot):
+def check_maintenance(message: Message, bot: TeleBot):
     if MAINTENANCE_MODE:
         user = db.get_user(message.from_user.id)
         if not user or not user[5]:  # user[5] is the is_admin flag
@@ -46,7 +46,7 @@ def register_handlers(bot: TeleBot):
         try:
             user = db.get_user(telegram_id)
             
-            message_text = "Hey there! Are you ready for a challenge? I bet you do!"
+            message_text = "Hey there! 👋 Are you ready for a challenge? 💪 I bet you do! 🎉"
             if user:
                 db.update_user(telegram_id, username, first_name, last_name)
                 bot.reply_to(message, message_text)
@@ -224,17 +224,17 @@ def register_handlers(bot: TeleBot):
                     value_str = format_activity_value(value, activity_type)
                     nicosia_time = created_at.astimezone(NICOSIA_TIMEZONE)
                     date_str = nicosia_time.strftime('%b %d %H:%M')
-                    keyboard.add(f"{activity_name}: {value_str} | {date_str}")
+                    keyboard.add(f"{activity_id}: {activity_name}: {value_str} | {date_str}")
                 keyboard.add("Cancel")
                 bot.reply_to(message, "Choose an activity to update:", reply_markup=keyboard)
                 bot.register_next_step_handler(message, process_update_activity_choice, activities)
             else:
-                bot.reply_to(message, "You don't have any recent activities to update.")
+                bot.reply_to(message, NO_ACTIVITIES_MESSAGE)
         except Exception as e:
             log_error(f"Error in update_activity: {str(e)}")
             bot.reply_to(message, GENERAL_ERROR_MESSAGE)
 
-    def process_update_activity_choice(message: types.Message, activities):
+    def process_update_activity_choice(message: Message, activities):
         if check_maintenance(message, bot):
             return
         if check_exit(message, bot):
@@ -246,7 +246,8 @@ def register_handlers(bot: TeleBot):
             return
         
         try:
-            chosen_activity = next((act for act in activities if f"{act[1]}: {format_activity_value(act[2], act[3])}" in choice), None)
+            activity_id = int(choice.split(":")[0])
+            chosen_activity = next((act for act in activities if act[0] == activity_id), None)
             
             if not chosen_activity:
                 raise ValueError(INVALID_ACTIVITY_SELECTION_MESSAGE)
@@ -258,10 +259,13 @@ def register_handlers(bot: TeleBot):
             else:
                 bot.reply_to(message, f"Updating: {activity_name}\nCurrent: {current_value} reps\nEnter new number of reps:", reply_markup=types.ReplyKeyboardRemove())
             bot.register_next_step_handler(message, process_update_activity_value, activity_id, activity_type)
+        except ValueError as e:
+            log_error(f"Error in process_update_activity_choice: {str(e)}")
+            bot.reply_to(message, INVALID_ACTIVITY_SELECTION_MESSAGE)
+            return update_activity(message)
         except Exception as e:
             log_error(f"Error in process_update_activity_choice: {str(e)}")
             bot.reply_to(message, GENERAL_ERROR_MESSAGE)
-            return update_activity(message)
 
     def process_update_activity_value(message: Message, activity_id, activity_type):
         if check_maintenance(message, bot):
@@ -515,14 +519,19 @@ def register_handlers(bot: TeleBot):
             activities = db.get_reference_activities(user[0])
             
             if activities:
-                response = "Your reference activities:\n\n"
+                table_data = []
+                headers = ["ID", "Activity", "Type"]
+                
                 for activity in activities:
-                    activity_id, activity_name, activity_type = activity  # Unpack 3 values
-                    response += f"ID: {activity_id}, Activity: {activity_name} ({activity_type})\n"
+                    activity_id, activity_name, activity_type = activity
+                    table_data.append([activity_id, activity_name, activity_type])
+                
+                table = tabulate(table_data, headers=headers, tablefmt="pipe")
+                response = "Your reference activities:\n\n" + table
             else:
                 response = "You haven't added any reference activities yet."
             
-            bot.reply_to(message, response)
+            bot.reply_to(message, f"```\n{response}\n```", parse_mode='Markdown')
         except Exception as e:
             log_error(f"Error in list_reference_activities: {str(e)}")
             bot.reply_to(message, GENERAL_ERROR_MESSAGE)
@@ -712,7 +721,7 @@ def register_handlers(bot: TeleBot):
     def exit_command(message: Message):
         bot.reply_to(message, OPERATION_CANCELLED_MESSAGE, reply_markup=types.ReplyKeyboardRemove())
 
-    def check_exit(message: Message, bot: telebot.TeleBot):
+    def check_exit(message: Message, bot: TeleBot):
         if message.text.strip().lower() == '/exit':
             bot.reply_to(message, OPERATION_CANCELLED_MESSAGE, reply_markup=types.ReplyKeyboardRemove())
             return True

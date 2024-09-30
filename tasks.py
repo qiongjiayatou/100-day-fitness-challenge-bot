@@ -1,6 +1,6 @@
 from celery import Celery
 from celery.schedules import crontab
-import telebot
+from telebot import TeleBot
 import types
 import os
 from database import Database  # Import the Database class
@@ -19,7 +19,7 @@ app.conf.update(
     broker_connection_retry_on_startup=True  # Add this line
 )
 
-bot = telebot.TeleBot(BOT_TOKEN)
+bot = TeleBot(BOT_TOKEN)
 
 # Create a Database instance
 db = Database()
