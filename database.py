@@ -9,7 +9,8 @@ class Database:
             host=POSTGRES_HOST,
             dbname=POSTGRES_DB,
             user=POSTGRES_USER,
-            password=POSTGRES_PASSWORD
+            password=POSTGRES_PASSWORD,
+            port=5432
         )
         self.init_db()
 

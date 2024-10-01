@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  bot:
+    command: watchmedo auto-restart --directory=/app --pattern=*.py --recursive -- python /app/main.py
+    develop:
+      watch:
+        - action: sync+restart
+          path: /app/*.py 
+          target: /app
+
+  celery_worker:
+    command: celery -A tasks worker -E --loglevel=debug
+    # celery -A tasks worker --loglevel=info
+
+  celery_beat:
+    command: celery -A tasks beat --loglevel=debug
+

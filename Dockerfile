@@ -1,6 +1,16 @@
 # Use an official Python runtime as the base image
 FROM python:3.9
 
+# Install tzdata
+RUN apt-get update && apt-get install -y tzdata
+
+# Set the timezone to Nicosia (Europe/Nicosia)
+ENV TZ=Europe/Nicosia
+
+# Set up the tzdata package (if needed)
+RUN ln -snf /usr/share/zoneinfo/Europe/Nicosia /etc/localtime && echo "Europe/Nicosia" > /etc/timezone
+
+
 # Set the working directory in the container
 WORKDIR /app
 
