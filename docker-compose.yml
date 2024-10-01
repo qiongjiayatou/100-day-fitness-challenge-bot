@@ -3,7 +3,7 @@ version: '3.8'
 services:
   bot:
     build: .
-    container_name: hdays_bot
+    container_name: hdays_bot_${APP_ENV}
     depends_on:
       - db
       - redis
@@ -14,26 +14,20 @@ services:
     restart: always
     ports:
       - 8443:8443
-    command: watchmedo auto-restart --directory=/app --pattern=*.py --recursive -- python /app/main.py
-    develop:
-      watch:
-        - action: sync+restart
-          path: /app/*.py 
-          target: /app
-
+    command: python /app/main.py
     networks:
       - app-network
 
   db:
     image: postgres:16
-    container_name: hdays_db
+    container_name: hdays_db_${APP_ENV}
     volumes:
       - ./postgres_data:/var/lib/postgresql/data
     env_file:
       - .env  
     restart: always
     ports:
-      - 5455:5432
+      - ${POSTGRES_PORT}:5432
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
@@ -44,14 +38,14 @@ services:
 
   redis:
     image: redis:alpine
-    container_name: hdays_redis
+    container_name: hdays_redis_${APP_ENV}
     restart: always
     networks:
       - app-network
 
   celery_worker:
     build: .
-    container_name: hdays_celery_worker
+    container_name: hdays_celery_worker_${APP_ENV}
     depends_on:
       db:
         condition: service_healthy
@@ -59,6 +53,8 @@ services:
         condition: service_started
     env_file:
       - .env
+    environment:
+      - TZ=Europe/Nicosia
     volumes:
       - .:/app
     restart: always
@@ -68,12 +64,14 @@ services:
 
   celery_beat:
     build: .
-    container_name: hdays_celery_beat
+    container_name: hdays_celery_beat_${APP_ENV}
     depends_on:
       - db
       - redis
     env_file:
       - .env
+    environment:
+      - TZ=Europe/Nicosia
     volumes:
       - .:/app
     restart: always
@@ -83,7 +81,6 @@ services:
 
 volumes:
   postgres_data:
-    driver: local
 
 networks:
   app-network:
