@@ -1,10 +1,9 @@
-from telebot import TeleBot, types
-from telebot.types import Message, CallbackQuery
+from telebot import TeleBot
+from telebot.types import Message, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove
 from database import Database  # Import the Database class
 from config import BOT_TOKEN, MAINTENANCE_MODE
 import pytz
 from datetime import datetime
-import logging
 from tasks import send_encouragement_and_quote
 from logger import logger, log_error, log_info
 from tabulate import tabulate
@@ -15,9 +14,6 @@ NICOSIA_TIMEZONE = pytz.timezone('Europe/Nicosia')
 
 # Create a Database instance
 db = Database()
-
-# Set up logging
-logging.basicConfig(level=logging.DEBUG)
 
 def create_bot():
     bot = TeleBot(BOT_TOKEN)
@@ -76,7 +72,7 @@ def register_handlers(bot: TeleBot):
         /stats - Get activity statistics
         
         Reference activities:
-        /addref - Add a new reference activity
+        /`g` - Add a new reference activity
         /listref - List all reference activities
         /updateref - Update an existing reference activity
         /deleteref - Delete a reference activity
@@ -88,7 +84,7 @@ def register_handlers(bot: TeleBot):
         log_info(f"Help command used by user {message.from_user.id}")
 
     @bot.message_handler(commands=['add'])
-    def add_activity(message: types.Message):
+    def add_activity(message: Message):
         if check_maintenance(message, bot):
             return
         telegram_id = message.from_user.id
@@ -98,7 +94,7 @@ def register_handlers(bot: TeleBot):
             activities = db.get_reference_activities(user[0])  # user[0] is the user_id
             
             if activities:
-                keyboard = types.ReplyKeyboardMarkup(row_width=2, one_time_keyboard=True, resize_keyboard=True)
+                keyboard = ReplyKeyboardMarkup(row_width=2, one_time_keyboard=True, resize_keyboard=True)
                 for activity in activities:
                     activity_id, activity_name, activity_type = activity  # Unpack 3 values
                     keyboard.add(f"{activity_id}: {activity_name} ({activity_type})")
@@ -131,9 +127,9 @@ def register_handlers(bot: TeleBot):
             activity_id, activity_name, activity_type = activity  # Unpack 3 values
             
             if activity_type == 'time':
-                bot.reply_to(message, f"How long was it? (enter in HH:MM:SS format)", reply_markup=types.ReplyKeyboardRemove())
+                bot.reply_to(message, f"How long was it? (enter in HH:MM:SS format)", reply_markup=ReplyKeyboardRemove())
             else:
-                bot.reply_to(message, f"How many reps did you do?", reply_markup=types.ReplyKeyboardRemove())
+                bot.reply_to(message, f"How many reps did you do?", reply_markup=ReplyKeyboardRemove())
             bot.register_next_step_handler(message, process_add_activity_value, reference_activity_id, activity_type)
         except Exception as e:
             log_error(f"Error in process_add_activity_choice: {str(e)}")
@@ -208,7 +204,7 @@ def register_handlers(bot: TeleBot):
         return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
     @bot.message_handler(commands=['update'])
-    def update_activity(message: types.Message):
+    def update_activity(message: Message):
         if check_maintenance(message, bot):
             return
         telegram_id = message.from_user.id
@@ -218,7 +214,7 @@ def register_handlers(bot: TeleBot):
             activities = db.get_recent_activities(user[0], limit=5)  # Get last 5 activities
             
             if activities:
-                keyboard = types.ReplyKeyboardMarkup(row_width=1, one_time_keyboard=True, resize_keyboard=True)
+                keyboard = ReplyKeyboardMarkup(row_width=1, one_time_keyboard=True, resize_keyboard=True)
                 for activity in activities:
                     activity_id, activity_name, value, activity_type, created_at = activity
                     value_str = format_activity_value(value, activity_type)
@@ -242,7 +238,7 @@ def register_handlers(bot: TeleBot):
         
         choice = message.text.strip()
         if choice == "Cancel":
-            bot.reply_to(message, OPERATION_CANCELLED_MESSAGE, reply_markup=types.ReplyKeyboardRemove())
+            bot.reply_to(message, OPERATION_CANCELLED_MESSAGE, reply_markup=ReplyKeyboardRemove())
             return
         
         try:
@@ -255,9 +251,9 @@ def register_handlers(bot: TeleBot):
             activity_id, activity_name, current_value, activity_type, created_at = chosen_activity
             
             if activity_type == 'time':
-                bot.reply_to(message, f"Updating: {activity_name}\nCurrent: {format_activity_value(current_value, activity_type)}\nEnter new time (HH:MM:SS):", reply_markup=types.ReplyKeyboardRemove())
+                bot.reply_to(message, f"Updating: {activity_name}\nCurrent: {format_activity_value(current_value, activity_type)}\nEnter new time (HH:MM:SS):", reply_markup=ReplyKeyboardRemove())
             else:
-                bot.reply_to(message, f"Updating: {activity_name}\nCurrent: {current_value} reps\nEnter new number of reps:", reply_markup=types.ReplyKeyboardRemove())
+                bot.reply_to(message, f"Updating: {activity_name}\nCurrent: {current_value} reps\nEnter new number of reps:", reply_markup=ReplyKeyboardRemove())
             bot.register_next_step_handler(message, process_update_activity_value, activity_id, activity_type)
         except ValueError as e:
             log_error(f"Error in process_update_activity_choice: {str(e)}")
@@ -303,7 +299,7 @@ def register_handlers(bot: TeleBot):
             activities = db.get_recent_activities(user[0], limit=5)  # Get last 5 activities
             
             if activities:
-                keyboard = types.ReplyKeyboardMarkup(row_width=1, one_time_keyboard=True, resize_keyboard=True)
+                keyboard = ReplyKeyboardMarkup(row_width=1, one_time_keyboard=True, resize_keyboard=True)
                 for activity in activities:
                     activity_id, activity_name, value, activity_type, created_at = activity
                     value_str = format_activity_value(value, activity_type)
@@ -327,7 +323,7 @@ def register_handlers(bot: TeleBot):
         
         choice = message.text.strip()
         if choice == "Cancel":
-            bot.reply_to(message, OPERATION_CANCELLED_MESSAGE, reply_markup=types.ReplyKeyboardRemove())
+            bot.reply_to(message, OPERATION_CANCELLED_MESSAGE, reply_markup=ReplyKeyboardRemove())
             return
         
         try:
@@ -340,9 +336,9 @@ def register_handlers(bot: TeleBot):
             activity_id, activity_name, value, activity_type, created_at = chosen_activity
             success = db.delete_activity(activity_id, message.from_user.id)
             if success:
-                bot.reply_to(message, f"Activity '{activity_name}' has been deleted successfully!", reply_markup=types.ReplyKeyboardRemove())
+                bot.reply_to(message, f"Activity '{activity_name}' has been deleted successfully!", reply_markup=ReplyKeyboardRemove())
             else:
-                bot.reply_to(message, FAILED_TO_DELETE_ACTIVITY_MESSAGE, reply_markup=types.ReplyKeyboardRemove())
+                bot.reply_to(message, FAILED_TO_DELETE_ACTIVITY_MESSAGE, reply_markup=ReplyKeyboardRemove())
         except ValueError as e:
             log_error(f"Error in process_delete_activity_choice: {str(e)}")
             bot.reply_to(message, INVALID_ACTIVITY_SELECTION_MESSAGE)
@@ -475,10 +471,15 @@ def register_handlers(bot: TeleBot):
 
     @bot.message_handler(commands=['addref'])
     def add_reference_activity(message: Message):
-        if check_maintenance(message, bot):
-            return
-        bot.reply_to(message, "Please enter the name of the reference activity:")
-        bot.register_next_step_handler(message, process_add_reference_activity_name)
+        try:
+            if check_maintenance(message, bot):
+                return
+            bot.reply_to(message, "Please enter the name of an activity:")
+            bot.register_next_step_handler(message, process_add_reference_activity_name)
+            log_info(f"Started add reference activity process for user {message.from_user.id}")
+        except Exception as e:
+            log_error(f"Error in add_reference_activity: {str(e)}")
+            bot.reply_to(message, GENERAL_ERROR_MESSAGE)
 
     def process_add_reference_activity_name(message: Message):
         if check_maintenance(message, bot):
@@ -487,8 +488,16 @@ def register_handlers(bot: TeleBot):
             return
         
         activity_name = message.text.strip()
-        bot.reply_to(message, "Please enter the type of the reference activity (time or reps):")
+        
+        # Create a keyboard with two buttons: "Reps" and "Time"
+        keyboard = ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+        keyboard.add(KeyboardButton("Reps"), KeyboardButton("Time"))
+        
+        bot.send_message(message.chat.id, "Please select the type of the reference activity:", reply_markup=keyboard)
         bot.register_next_step_handler(message, process_add_reference_activity_type, activity_name)
+
+        # Log the action for debugging
+        log_info(f"Sent keyboard for activity type selection to user {message.from_user.id}")
 
     def process_add_reference_activity_type(message: Message, activity_name):
         if check_maintenance(message, bot):
@@ -497,16 +506,20 @@ def register_handlers(bot: TeleBot):
             return
         
         activity_type = message.text.strip().lower()
-        if activity_type not in ['time', 'reps']:
-            bot.reply_to(message, "Invalid activity type. Please enter 'time' or 'reps'.")
-            return add_reference_activity(message)
+        if activity_type not in ['reps', 'time']:
+            bot.reply_to(message, "Invalid activity type. Please select either 'Reps' or 'Time'.")
+            log_error(f"Invalid activity type '{activity_type}' selected by user {message.from_user.id}")
+            return process_add_reference_activity_name(message)
         
         try:
-            db.add_reference_activity(activity_name, activity_type)
-            bot.reply_to(message, f"Reference activity '{activity_name}' ({activity_type}) added successfully!")
+            user = db.get_user(message.from_user.id)
+            db.add_reference_activity(user[0], activity_name, activity_type)
+            bot.reply_to(message, f"Reference activity '{activity_name}' ({activity_type}) added successfully!", reply_markup=ReplyKeyboardRemove())
+            log_info(f"Reference activity '{activity_name}' ({activity_type}) added successfully by user {message.from_user.id}")
         except Exception as e:
-            log_error(f"Error in process_add_reference_activity_type: {str(e)}")
-            bot.reply_to(message, GENERAL_ERROR_MESSAGE)
+            error_message = f"Error in process_add_reference_activity_type for user {message.from_user.id}: {str(e)}"
+            log_error(error_message)
+            bot.reply_to(message, GENERAL_ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove())
 
     @bot.message_handler(commands=['listref'])
     def list_reference_activities(message: Message):
@@ -531,7 +544,7 @@ def register_handlers(bot: TeleBot):
             else:
                 response = "You haven't added any reference activities yet."
             
-            bot.reply_to(message, f"```\n{response}\n```", parse_mode='Markdown')
+            bot.reply_to(message, f"```\n{response}\n```", parse_mode='MarkdownV2')
         except Exception as e:
             log_error(f"Error in list_reference_activities: {str(e)}")
             bot.reply_to(message, GENERAL_ERROR_MESSAGE)
@@ -544,18 +557,18 @@ def register_handlers(bot: TeleBot):
         
         try:
             user = db.get_user(telegram_id)
-            activities = db.get_reference_activities(user[0], limit=5)  # Get last 5 reference activities
+            activities = db.get_reference_activities(user[0])  # Get all reference activities
             
             if activities:
-                keyboard = types.ReplyKeyboardMarkup(row_width=1, one_time_keyboard=True, resize_keyboard=True)
+                keyboard = ReplyKeyboardMarkup(row_width=1, one_time_keyboard=True, resize_keyboard=True)
                 for activity in activities:
                     activity_id, activity_name, activity_type = activity
-                    keyboard.add(f"{activity_name} ({activity_type})")
+                    keyboard.add(f"{activity_id}: {activity_name} ({activity_type})")
                 keyboard.add("Cancel")
-                bot.reply_to(message, "Choose a reference activity to update:", reply_markup=keyboard)
+                bot.reply_to(message, "Choose a reference activity to update or press 'Cancel' to exit:", reply_markup=keyboard)
                 bot.register_next_step_handler(message, process_update_reference_activity_choice, activities)
             else:
-                bot.reply_to(message, "You don't have any recent reference activities to update.")
+                bot.reply_to(message, "You don't have any reference activities to update.")
         except Exception as e:
             log_error(f"Error in update_reference_activity: {str(e)}")
             bot.reply_to(message, GENERAL_ERROR_MESSAGE)
@@ -568,20 +581,21 @@ def register_handlers(bot: TeleBot):
         
         choice = message.text.strip()
         if choice.lower() == "cancel":
-            bot.reply_to(message, OPERATION_CANCELLED_MESSAGE, reply_markup=types.ReplyKeyboardRemove())
+            bot.reply_to(message, OPERATION_CANCELLED_MESSAGE, reply_markup=ReplyKeyboardRemove())
             return
         
         try:
-            activity_name, activity_type = choice.split(" (")
-            activity_type = activity_type.rstrip(")")
-            activity = next((act for act in activities if act[1] == activity_name and act[2] == activity_type), None)
+            activity_id = int(choice.split(":")[0])
+            activity = next((act for act in activities if act[0] == activity_id), None)
             
             if not activity:
                 raise ValueError(INVALID_ACTIVITY_SELECTION_MESSAGE)
             
             activity_id, current_name, current_type = activity
             
-            bot.reply_to(message, f"Updating reference activity: {current_name}\nCurrent type: {current_type}\nEnter new name (or 'skip' to keep current):", reply_markup=types.ReplyKeyboardRemove())
+            keyboard = ReplyKeyboardMarkup(row_width=2, one_time_keyboard=True, resize_keyboard=True)
+            keyboard.add("Skip", "Cancel")
+            bot.reply_to(message, f"Updating reference activity: {current_name}\nCurrent type: {current_type}\nEnter new name, press 'Skip' to keep current, or 'Cancel' to exit:", reply_markup=keyboard)
             bot.register_next_step_handler(message, process_update_reference_activity_name, activity_id, current_name, current_type)
         except Exception as e:
             log_error(f"Error in process_update_reference_activity_choice: {str(e)}")
@@ -595,12 +609,15 @@ def register_handlers(bot: TeleBot):
             return
         
         new_name = message.text.strip()
+        if new_name.lower() == 'cancel':
+            bot.reply_to(message, OPERATION_CANCELLED_MESSAGE, reply_markup=ReplyKeyboardRemove())
+            return
         if new_name.lower() == 'skip':
             new_name = current_name
         
-        keyboard = types.ReplyKeyboardMarkup(row_width=3, one_time_keyboard=True, resize_keyboard=True)
-        keyboard.add("time", "reps", "skip")
-        bot.reply_to(message, f"Current type: {current_type}\nSelect type:", reply_markup=keyboard)
+        keyboard = ReplyKeyboardMarkup(row_width=2, one_time_keyboard=True, resize_keyboard=True)
+        keyboard.add("time", "reps", "Skip", "Cancel")
+        bot.reply_to(message, f"Current type: {current_type}\nSelect new type, press 'Skip' to keep current, or 'Cancel' to exit:", reply_markup=keyboard)
         bot.register_next_step_handler(message, process_update_reference_activity_type, activity_id, new_name, current_type)
 
     def process_update_reference_activity_type(message: Message, activity_id, new_name, current_type):
@@ -610,8 +627,11 @@ def register_handlers(bot: TeleBot):
             return
         
         new_type = message.text.strip().lower()
+        if new_type == 'cancel':
+            bot.reply_to(message, OPERATION_CANCELLED_MESSAGE, reply_markup=ReplyKeyboardRemove())
+            return
         if new_type not in ['time', 'reps', 'skip']:
-            bot.reply_to(message, "Invalid type. Please select either 'time', 'reps', or 'skip' to keep the current type.")
+            bot.reply_to(message, "Invalid type. Please select either 'time', 'reps', 'Skip' to keep the current type, or 'Cancel' to exit.")
             return process_update_reference_activity_name(message, activity_id, new_name, current_type)
         
         if new_type == 'skip':
@@ -622,9 +642,9 @@ def register_handlers(bot: TeleBot):
             user = db.get_user(telegram_id)
             success = db.update_reference_activity(activity_id, user[0], new_name, new_type)
             if success:
-                bot.reply_to(message, f"Updated: {new_name}\nNew type: {new_type}", reply_markup=types.ReplyKeyboardRemove())
+                bot.reply_to(message, f"Updated: {new_name}\nNew type: {new_type}", reply_markup=ReplyKeyboardRemove())
             else:
-                bot.reply_to(message, FAILED_TO_UPDATE_ACTIVITY_MESSAGE, reply_markup=types.ReplyKeyboardRemove())
+                bot.reply_to(message, FAILED_TO_UPDATE_ACTIVITY_MESSAGE, reply_markup=ReplyKeyboardRemove())
         except Exception as e:
             log_error(f"Error in process_update_reference_activity_type: {str(e)}")
             bot.reply_to(message, GENERAL_ERROR_MESSAGE)
@@ -640,7 +660,7 @@ def register_handlers(bot: TeleBot):
             activities = db.get_reference_activities(user[0], limit=5)  # Get last 5 reference activities
             
             if activities:
-                keyboard = types.ReplyKeyboardMarkup(row_width=1, one_time_keyboard=True, resize_keyboard=True)
+                keyboard = ReplyKeyboardMarkup(row_width=1, one_time_keyboard=True, resize_keyboard=True)
                 for activity in activities:
                     activity_id, activity_name, activity_type = activity
                     keyboard.add(f"{activity_name} ({activity_type})")
@@ -661,7 +681,7 @@ def register_handlers(bot: TeleBot):
         
         choice = message.text.strip()
         if choice.lower() == "cancel":
-            bot.reply_to(message, OPERATION_CANCELLED_MESSAGE, reply_markup=types.ReplyKeyboardRemove())
+            bot.reply_to(message, OPERATION_CANCELLED_MESSAGE, reply_markup=ReplyKeyboardRemove())
             return
         
         try:
@@ -677,7 +697,7 @@ def register_handlers(bot: TeleBot):
             activity_count = db.get_activity_count_for_reference(activity_id, message.from_user.id)
             
             if activity_count > 0:
-                keyboard = types.ReplyKeyboardMarkup(row_width=2, one_time_keyboard=True, resize_keyboard=True)
+                keyboard = ReplyKeyboardMarkup(row_width=2, one_time_keyboard=True, resize_keyboard=True)
                 keyboard.add("Yes", "No")
                 bot.reply_to(message, 
                              f"Warning: The reference activity '{activity_name}' has {activity_count} recorded activities. "
@@ -702,7 +722,7 @@ def register_handlers(bot: TeleBot):
         if confirmation == 'yes':
             process_delete_reference_activity(message, activity_id)
         else:
-            bot.reply_to(message, OPERATION_CANCELLED_MESSAGE, reply_markup=types.ReplyKeyboardRemove())
+            bot.reply_to(message, OPERATION_CANCELLED_MESSAGE, reply_markup=ReplyKeyboardRemove())
 
     def process_delete_reference_activity(message: Message, activity_id):
         try:
@@ -710,19 +730,19 @@ def register_handlers(bot: TeleBot):
             user = db.get_user(telegram_id)
             success = db.delete_reference_activity(activity_id, user[0])
             if success:
-                bot.reply_to(message, f"Reference activity with ID {activity_id} has been deleted successfully!", reply_markup=types.ReplyKeyboardRemove())
+                bot.reply_to(message, f"Reference activity with ID {activity_id} has been deleted successfully!", reply_markup=ReplyKeyboardRemove())
             else:
-                bot.reply_to(message, FAILED_TO_DELETE_ACTIVITY_MESSAGE, reply_markup=types.ReplyKeyboardRemove())
+                bot.reply_to(message, FAILED_TO_DELETE_ACTIVITY_MESSAGE, reply_markup=ReplyKeyboardRemove())
         except Exception as e:
             log_error(f"Error in process_delete_reference_activity: {str(e)}")
             bot.reply_to(message, GENERAL_ERROR_MESSAGE)
 
     @bot.message_handler(commands=['exit'])
     def exit_command(message: Message):
-        bot.reply_to(message, OPERATION_CANCELLED_MESSAGE, reply_markup=types.ReplyKeyboardRemove())
+        bot.reply_to(message, OPERATION_CANCELLED_MESSAGE, reply_markup=ReplyKeyboardRemove())
 
     def check_exit(message: Message, bot: TeleBot):
         if message.text.strip().lower() == '/exit':
-            bot.reply_to(message, OPERATION_CANCELLED_MESSAGE, reply_markup=types.ReplyKeyboardRemove())
+            bot.reply_to(message, OPERATION_CANCELLED_MESSAGE, reply_markup=ReplyKeyboardRemove())
             return True
         return False

@@ -32,15 +32,17 @@ def setup_periodic_tasks(sender, **kwargs):
     #     crontab(minute='*'),
     #     send_encouragement.s()
     # )
-
+    
     sender.add_periodic_task(
         crontab(hour=12, minute=0), 
-        send_encouragement.s()
+        send_encouragement.s(),
+        name='send_encouragement_at_12'
     )
 
     sender.add_periodic_task(
         crontab(hour=20, minute=0), 
-        send_encouragement.s()
+        send_encouragement.s(),
+        name='send_encouragement_at_20'
     )
 
 @app.task
