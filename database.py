@@ -1,5 +1,6 @@
 from psycopg2 import pool
 from config import *
+from logger import log_error
 
 
 class Database:
@@ -114,7 +115,7 @@ class Database:
         SELECT id, activity_name, activity_type 
         FROM reference_activities 
         WHERE user_id = %s 
-        ORDER BY id DESC
+        ORDER BY id ASC
         """
         if limit:
             query += " LIMIT %s"
@@ -169,23 +170,56 @@ class Database:
         finally:
             self.release_connection(conn)
 
-    def update_activity(self, activity_id, user_id, new_value):
+    def update_activity(self, activity_id, user_id, value=None, created_at=None):
         conn = self.get_connection()
         try:
             with conn.cursor() as cur:
-                cur.execute("UPDATE activities SET value = %s WHERE id = %s AND user_id = %s", (new_value, activity_id, user_id))
-                conn.commit()
-                return True
+                # Prepare the update query
+                update_query = "UPDATE activities SET "
+                update_params = []
+                
+                if value is not None:
+                    update_query += "value = %s, "
+                    update_params.append(value)
+                
+                if created_at is not None:
+                    update_query += "created_at = %s, "
+                    update_params.append(created_at)
+                
+                # Remove the trailing comma and space
+                update_query = update_query.rstrip(", ")
+                
+                # Add the WHERE clause
+                update_query += " WHERE id = %s AND user_id = %s"
+                update_params.extend([activity_id, user_id])
+                
+                # Execute the query only if there are parameters to update
+                if update_params:
+                    cur.execute(update_query, update_params)
+                    conn.commit()
+                    return cur.rowcount > 0
+                else:
+                    return False  # No updates were made
+        except Exception as e:
+            log_error(f"Database error in update_activity: {str(e)}")
+            return False
         finally:
             self.release_connection(conn)
 
-    def delete_activity(self, activity_id, user_id):
+    def delete_activity(self, activity_id: int, user_id: int) -> bool:
         conn = self.get_connection()
         try:
             with conn.cursor() as cur:
-                cur.execute("DELETE FROM activities WHERE id = %s AND user_id = %s", (activity_id, user_id))
+                cur.execute("""
+                    DELETE FROM activities
+                    WHERE id = %s AND user_id = %s
+                """, (activity_id, user_id))
+                deleted = cur.rowcount > 0
                 conn.commit()
-                return True
+                return deleted
+        except Exception as e:
+            log_error(f"Error deleting activity: {str(e)}")
+            return False
         finally:
             self.release_connection(conn)
 
@@ -420,7 +454,7 @@ class Database:
         finally:
             self.release_connection(conn)
 
-    def get_activity_streak(self, user_id):
+    def get_activity_streaks(self, user_id):
         query = """
         WITH daily_activity AS (
             SELECT user_id, reference_activity_id, DATE(created_at) as activity_date
@@ -429,7 +463,7 @@ class Database:
             GROUP BY user_id, reference_activity_id, DATE(created_at)
         ),
         activity_counts AS (
-            SELECT user_id, reference_activity_id, COUNT(*) as days_active
+            SELECT user_id, reference_activity_id, COUNT(DISTINCT activity_date) as days_active
             FROM daily_activity
             GROUP BY user_id, reference_activity_id
         )
@@ -441,5 +475,49 @@ class Database:
         ORDER BY ra.activity_name;
         """
         return self.execute_query(query, (user_id, user_id))
+
+    def update_activity_datetime(self, activity_id, user_id, new_datetime):
+        try:
+            with self.conn:
+                self.conn.execute("""
+                    UPDATE activities
+                    SET created_at = ?
+                    WHERE id = ? AND user_id = ?
+                """, (new_datetime, activity_id, user_id))
+            return True
+        except Exception as e:
+            log_error(f"Error updating activity datetime: {str(e)}")
+            return False
+
+    def get_activity_type(self, activity_id):
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT ra.activity_type
+                    FROM activities a
+                    JOIN reference_activities ra ON a.reference_activity_id = ra.id
+                    WHERE a.id = %s
+                """, (activity_id,))
+                return cur.fetchone()[0]
+        finally:
+            self.release_connection(conn)
+
+    def get_reference_activities_without_activities(self, user_id):
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT r.id, r.activity_name, r.activity_type
+                    FROM reference_activities r
+                    LEFT JOIN activities a ON r.id = a.reference_activity_id
+                    WHERE r.user_id = %s
+                    GROUP BY r.id
+                    HAVING COUNT(a.id) = 0
+                    ORDER BY r.id ASC
+                """, (user_id,))
+                return cur.fetchall()
+        finally:
+            self.release_connection(conn)
 
 db = Database()

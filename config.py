@@ -16,3 +16,5 @@ REDIS_URL = os.environ.get("REDIS_URL")
 # Other configurations
 MAINTENANCE_MODE = os.environ.get("MAINTENANCE_MODE", "false").lower() == "true"
 ADMIN_ID = os.environ.get("ADMIN_ID")
+
+ACTIVITY_LIMIT = os.environ.get("ACTIVITY_LIMIT", 5)
