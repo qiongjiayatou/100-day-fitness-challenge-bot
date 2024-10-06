@@ -88,17 +88,11 @@ def register_handlers(bot: TeleBot):
         
         try:
             user = db.get_user(telegram_id)
-            activities = db.get_reference_activities(user[0])  # user[0] is the user_id
+            reference_activities = db.get_reference_activities(user[0])
             
-            if activities:
-                keyboard = ReplyKeyboardMarkup(row_width=2, one_time_keyboard=True, resize_keyboard=True)
-                for activity in activities:
-                    activity_id, activity_name, activity_type = activity  # Unpack 3 values
-                    keyboard.add(f"{activity_id}: {activity_name} ({activity_type})")
-                keyboard.add("Cancel")  # Add Cancel button
-                bot.reply_to(message, "Please choose an activity or press 'Cancel' to abort:", reply_markup=keyboard)
-                bot.register_next_step_handler(message, process_add_activity_choice, activities)
-                log_info(f"User {telegram_id} started adding an activity")
+            if reference_activities:
+                # Start the bulk add process
+                process_bulk_add(message, reference_activities, 0, {})
             else:
                 bot.reply_to(message, NO_REFERENCE_ACTIVITIES_MESSAGE)
                 log_info(f"User {telegram_id} attempted to add activity but has no reference activities")
@@ -106,82 +100,63 @@ def register_handlers(bot: TeleBot):
             log_error(f"Error in add_activity for user {telegram_id}: {str(e)}")
             bot.reply_to(message, GENERAL_ERROR_MESSAGE)
 
-    def process_add_activity_choice(message: Message, valid_activities):
-        if check_maintenance(message, bot):
+    def process_bulk_add(message: Message, reference_activities, current_index, added_activities):
+        if current_index >= len(reference_activities):
+            # We've gone through all activities, save the results
+            save_bulk_add_results(message, added_activities)
             return
-        if check_exit(message, bot):
-            return
-        
-        choice = message.text.strip()
-        log_info(f"User choice: {choice}")
-        
-        if choice.lower() == "cancel":
-            bot.reply_to(message, OPERATION_CANCELLED_MESSAGE, reply_markup=ReplyKeyboardRemove())
-            return
-        
-        try:
-            reference_activity_id = int(choice.split(":")[0])
-            activity = next((act for act in valid_activities if act[0] == reference_activity_id), None)
-            
-            if not activity:
-                raise ValueError(INVALID_ACTIVITY_SELECTION_MESSAGE)
-            
-            activity_id, activity_name, activity_type = activity  # Unpack 3 values
-            
-            keyboard = ReplyKeyboardMarkup(row_width=1, one_time_keyboard=True, resize_keyboard=True)
-            keyboard.add("Cancel")
-            
-            if activity_type == 'time':
-                bot.reply_to(message, f"How long was it? (enter in HH:MM:SS format)\nOr press 'Cancel' to abort.", reply_markup=keyboard)
-            else:
-                bot.reply_to(message, f"How many reps did you do?\nOr press 'Cancel' to abort.", reply_markup=keyboard)
-            bot.register_next_step_handler(message, process_add_activity_value, reference_activity_id, activity_type)
-        except Exception as e:
-            log_error(f"Error in process_add_activity_choice: {str(e)}")
-            bot.reply_to(message, GENERAL_ERROR_MESSAGE)
-            return add_activity(message)
 
-    def process_add_activity_value(message: Message, reference_activity_id, activity_type):
+        activity = reference_activities[current_index]
+        activity_id, activity_name, activity_type = activity
+
+        keyboard = ReplyKeyboardMarkup(row_width=2, one_time_keyboard=True, resize_keyboard=True)
+        keyboard.add("Skip", "Cancel")
+
+        if activity_type == 'time':
+            bot.reply_to(message, f"Enter duration for {activity_name} (HH:MM:SS format), or choose an option:", reply_markup=keyboard)
+        else:
+            bot.reply_to(message, f"Enter number of reps for {activity_name}, or choose an option:", reply_markup=keyboard)
+
+        bot.register_next_step_handler(message, process_bulk_add_value, reference_activities, current_index, added_activities)
+
+    def process_bulk_add_value(message: Message, reference_activities, current_index, added_activities):
         if check_maintenance(message, bot):
             return
         if check_exit(message, bot):
             return
-        
-        value_input = message.text.strip()
-        telegram_id = message.from_user.id
-        
-        if value_input.lower() == "cancel":
+
+        activity = reference_activities[current_index]
+        activity_id, activity_name, activity_type = activity
+
+        value = message.text.strip()
+
+        if value.lower() == "cancel":
             bot.reply_to(message, OPERATION_CANCELLED_MESSAGE, reply_markup=ReplyKeyboardRemove())
             return
-        
+        elif value.lower() == "skip":
+            process_bulk_add(message, reference_activities, current_index + 1, added_activities)
+            return
+
         try:
-            value = parse_activity_value(value_input, activity_type)
-            
-            user = db.get_user(telegram_id)
-            activity_id = db.add_activity(user[0], reference_activity_id, value)
-            
-            # Get the activity name
-            activity = db.get_reference_activity(reference_activity_id, user[0])
-            activity_name = activity[0] if activity else "Unknown"
-            
-            # Get current time in Nicosia
-            nicosia_time = datetime.now(NICOSIA_TIMEZONE)
-            
-            value_str = format_activity_value(value, activity_type)
-            date_str = nicosia_time.strftime('%b %d %H:%M')
-            
-            bot.reply_to(message, f"Added: {activity_name} | {value_str} | {date_str}", reply_markup=ReplyKeyboardRemove())
+            parsed_value = parse_activity_value(value, activity_type)
+            added_activities[activity_id] = parsed_value
+            process_bulk_add(message, reference_activities, current_index + 1, added_activities)
         except ValueError as e:
             bot.reply_to(message, str(e))
-            keyboard = ReplyKeyboardMarkup(row_width=1, one_time_keyboard=True, resize_keyboard=True)
-            keyboard.add("Cancel")
-            if activity_type == 'time':
-                bot.reply_to(message, "Enter valid time (HH:MM:SS) or press 'Cancel' to abort:", reply_markup=keyboard)
-            else:
-                bot.reply_to(message, "Enter valid number of reps or press 'Cancel' to abort:", reply_markup=keyboard)
-            bot.register_next_step_handler(message, process_add_activity_value, reference_activity_id, activity_type)
+            process_bulk_add(message, reference_activities, current_index, added_activities)
+
+    def save_bulk_add_results(message: Message, added_activities):
+        telegram_id = message.from_user.id
+        user = db.get_user(telegram_id)
+        
+        try:
+            for activity_id, value in added_activities.items():
+                db.add_activity(user[0], activity_id, value)
+            
+            bot.reply_to(message, f"Successfully added {len(added_activities)} activities!", reply_markup=ReplyKeyboardRemove())
+            log_info(f"Bulk add: User {telegram_id} added {len(added_activities)} activities")
         except Exception as e:
-            log_error(f"Error in process_add_activity_value: {str(e)}")
+            log_error(f"Error in save_bulk_add_results for user {telegram_id}: {str(e)}")
             bot.reply_to(message, GENERAL_ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove())
 
     def parse_activity_value(value_input, activity_type):
