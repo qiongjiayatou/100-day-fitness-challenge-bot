@@ -164,12 +164,12 @@ def register_handlers(bot: TeleBot):
         
         try:
             user = db.get_user(telegram_id)
-            activities = db.get_reference_activities(user[0])  # user[0] is the user_id
+            reference_activities = db.get_reference_activities(user[0])  # user[0] is the user_id
             
-            if activities:
-                keyboard = create_reference_activity_keyboard(activities)
+            if reference_activities:
+                keyboard = create_reference_activity_keyboard(reference_activities)
                 bot.reply_to(message, "Please choose an activity or press 'Cancel' to abort:", reply_markup=keyboard)
-                bot.register_next_step_handler(message, process_add_activity_choice, activities)
+                bot.register_next_step_handler(message, process_add_activity_choice, reference_activities)
                 log_info(f"User {telegram_id} started adding an activity")
             else:
                 bot.reply_to(message, NO_REFERENCE_ACTIVITIES_MESSAGE)
@@ -231,7 +231,7 @@ def register_handlers(bot: TeleBot):
             
             # Get the activity name
             activity = db.get_reference_activity(reference_activity_id, user[0])
-            activity_name = activity[0] if activity else "Unknown"
+            activity_name = activity[1] if activity else "Unknown"  # Assuming activity name is the second item
             
             # Get current time in Nicosia
             nicosia_time = datetime.now(NICOSIA_TIMEZONE)
@@ -241,6 +241,11 @@ def register_handlers(bot: TeleBot):
             
             bot.reply_to(message, f"Added: {activity_name} | {value_str} | {date_str}", reply_markup=ReplyKeyboardRemove())
         except ValueError as e:
+            # Get the activity name here as well
+            user = db.get_user(telegram_id)
+            activity = db.get_reference_activity(reference_activity_id, user[0])
+            activity_name = activity[1] if activity else "Unknown"  # Assuming activity name is the second item
+            
             bot.reply_to(message, str(e))
             keyboard = ReplyKeyboardMarkup(row_width=1, one_time_keyboard=True, resize_keyboard=True)
             keyboard.add("Cancel")
@@ -251,10 +256,10 @@ def register_handlers(bot: TeleBot):
             bot.reply_to(message, GENERAL_ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove())
 
     # Shared functions
-    def create_reference_activity_keyboard(activities):
+    def create_reference_activity_keyboard(reference_activities):
         keyboard = ReplyKeyboardMarkup(row_width=2, one_time_keyboard=True, resize_keyboard=True)
-        for activity in activities:
-            activity_id, activity_name, activity_type = activity
+        for reference_activity in reference_activities:
+            activity_id, activity_name, activity_type = reference_activity
             keyboard.add(f"{activity_id}: {activity_name} ({activity_type})")
         keyboard.add("Cancel")
         return keyboard
