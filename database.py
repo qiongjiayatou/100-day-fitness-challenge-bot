@@ -520,4 +520,39 @@ class Database:
         finally:
             self.release_connection(conn)
 
+    # Add this new method to the Database class
+
+    def get_global_ranking(self):
+        query = """
+        SELECT 
+            COALESCE(u.first_name, 'N/A') AS name,
+            COUNT(DISTINCT ra.id) AS total_activities,
+            COALESCE(SUM(CASE WHEN ra.activity_type = 'time' THEN a.value ELSE 0 END), 0) AS total_time,
+            COALESCE(SUM(CASE WHEN ra.activity_type = 'reps' THEN a.value ELSE 0 END), 0) AS total_reps,
+            COUNT(DISTINCT DATE(a.created_at)) AS days_active,
+            MAX(a.created_at) AS last_active
+        FROM 
+            users u
+        INNER JOIN 
+            activities a ON u.id = a.user_id
+        INNER JOIN 
+            reference_activities ra ON a.reference_activity_id = ra.id
+        WHERE 
+            u.is_admin = FALSE
+        GROUP BY 
+            u.id, u.first_name
+        HAVING
+            COUNT(DISTINCT a.id) >= 1
+        ORDER BY 
+            days_active DESC, last_active DESC, total_time DESC, total_reps DESC
+        LIMIT 10
+        """
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(query)
+                return cur.fetchall()
+        finally:
+            self.release_connection(conn)
+
 db = Database()
