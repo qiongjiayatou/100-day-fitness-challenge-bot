@@ -572,22 +572,23 @@ def register_handlers(bot: TeleBot):
             
             total_activities = db.get_total_activities_count(user[0])
             unique_activities = db.get_unique_activities_count(user[0])
-            most_frequent = db.get_most_frequent_activity(user[0])
             activities = db.get_all_activities(user[0])
             activity_streaks = db.get_activity_streaks(user[0])
 
             log_info(f"Total activities: {total_activities}")
             log_info(f"Unique activities: {unique_activities}")
-            log_info(f"Most frequent activity: {most_frequent}")
             log_info(f"All activities: {activities}")
             log_info(f"Activity streaks: {activity_streaks}")
 
             # Calculate totals
             activity_totals, total_reps, total_duration = calculate_activity_totals(activities)
 
+            # Calculate days left until 100 for each activity
+            days_left = calculate_days_left(activity_streaks)
+
             # Format the response
-            stats_message = format_stats_message(total_activities, unique_activities, most_frequent, 
-                                                 total_reps, total_duration, activity_totals, activity_streaks)
+            stats_message = format_stats_message(total_activities, unique_activities, 
+                                                 total_reps, total_duration, activity_totals, activity_streaks, days_left)
 
             bot.reply_to(message, stats_message)
             log_info(f"Stats retrieved for user {telegram_id}")
@@ -613,38 +614,47 @@ def register_handlers(bot: TeleBot):
         
         return activity_totals, total_reps, total_duration
 
-    def format_stats_message(total_activities, unique_activities, most_frequent, total_reps, total_duration, activity_totals, activity_streaks):
-        stats_message = f"📊 Your Fitness Challenge Statistics:\n\n"
+    def calculate_days_left(activity_streaks):
+        days_left = {}
+        for streak in activity_streaks:
+            try:
+                activity_name = streak[3]
+                days_active = streak[4]  # This is the number of days active
+                days_left[activity_name] = max(0, 100 - days_active)
+            except IndexError as e:
+                log_error(f"Error processing streak data: {streak}. Error: {str(e)}")
+        return days_left
+
+    def format_stats_message(total_activities, unique_activities, total_reps, total_duration, activity_totals, activity_streaks, days_left):
+        stats_message = "📊 Your Fitness Challenge Statistics:\n\n"
+        
+        # Overall statistics
         stats_message += f"Total activities logged: {total_activities}\n"
         stats_message += f"Unique activities: {unique_activities}\n"
-        if most_frequent:
-            stats_message += f"Most frequent activity: {most_frequent[0]} (done {most_frequent[1]} times)\n"
         stats_message += f"Total reps across all activities: {total_reps}\n"
         stats_message += f"Total duration across all activities: {format_duration(total_duration)}\n\n"
         
         stats_message += "Activity Statistics:\n"
         for activity, totals in activity_totals.items():
-            stats_message += f"{activity}:\n"
+            stats_message += f"\n{activity}:\n"
             if totals['reps'] > 0:
-                stats_message += f"  Total reps: {totals['reps']}\n"
-                stats_message += f"  Total duration: {format_duration(totals['time'])}\n"
+                stats_message += f"  • Total reps: {totals['reps']}\n"
+            if totals['time'] > 0:
+                stats_message += f"  • Total duration: {format_duration(totals['time'])}\n"
             
-            # Add streak information with correct grammatical agreement
+            if activity in days_left:
+                stats_message += f"  • Days left in challenge: {days_left[activity]}\n"
+            
             streak = next((s for s in activity_streaks if s[3] == activity), None)
             if streak:
-                days = streak[4]
-                if days == 1:
-                    streak_text = "1 day"
-                else:
-                    streak_text = f"{days} days"
-                stats_message += f"  Current streak: {streak_text}\n"
+                days_active = streak[4]
+                stats_message += f"  • Days active: {days_active}\n"
             
             last_activity = db.get_last_activity(activity)
             if last_activity:
                 nicosia_time = last_activity[2].astimezone(NICOSIA_TIMEZONE)
-                stats_message += f"  Last performed: {nicosia_time.strftime('%Y-%m-%d %H:%M:%S')}\n"
-            
-            stats_message += "\n"
+                formatted_time = nicosia_time.strftime('%b %d at %H:%M')
+                stats_message += f"  • Last performed: {formatted_time}\n"
         
         return stats_message
 
