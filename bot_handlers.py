@@ -77,6 +77,9 @@ def register_handlers(bot: TeleBot):
         /listref - List all reference activities
         /updateref - Update an existing reference activity
         /deleteref - Delete a reference activity
+
+        Global ranking:
+        /ranking - Show global ranking
         """
         bot.reply_to(message, help_text)
         log_info(f"Help command used by user {message.from_user.id}")
@@ -296,9 +299,13 @@ def register_handlers(bot: TeleBot):
             return f"{value} reps"
 
     def format_duration(seconds):
-        hours, remainder = divmod(seconds, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+        try:
+            hours, remainder = divmod(int(seconds), 3600)
+            minutes, seconds = divmod(remainder, 60)
+            return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+        except Exception as e:
+            log_error(f"Error in format_duration: {str(e)}")
+            return "00:00:00"  # Return a default value if there's an error
 
     @bot.message_handler(commands=['update'])
     def update_activity(message: Message):
@@ -572,22 +579,23 @@ def register_handlers(bot: TeleBot):
             
             total_activities = db.get_total_activities_count(user[0])
             unique_activities = db.get_unique_activities_count(user[0])
-            most_frequent = db.get_most_frequent_activity(user[0])
             activities = db.get_all_activities(user[0])
             activity_streaks = db.get_activity_streaks(user[0])
 
             log_info(f"Total activities: {total_activities}")
             log_info(f"Unique activities: {unique_activities}")
-            log_info(f"Most frequent activity: {most_frequent}")
             log_info(f"All activities: {activities}")
             log_info(f"Activity streaks: {activity_streaks}")
 
             # Calculate totals
             activity_totals, total_reps, total_duration = calculate_activity_totals(activities)
 
+            # Calculate days left until 100 for each activity
+            days_left = calculate_days_left(activity_streaks)
+
             # Format the response
-            stats_message = format_stats_message(total_activities, unique_activities, most_frequent, 
-                                                 total_reps, total_duration, activity_totals, activity_streaks)
+            stats_message = format_stats_message(total_activities, unique_activities, 
+                                                 total_reps, total_duration, activity_totals, activity_streaks, days_left)
 
             bot.reply_to(message, stats_message)
             log_info(f"Stats retrieved for user {telegram_id}")
@@ -613,38 +621,47 @@ def register_handlers(bot: TeleBot):
         
         return activity_totals, total_reps, total_duration
 
-    def format_stats_message(total_activities, unique_activities, most_frequent, total_reps, total_duration, activity_totals, activity_streaks):
-        stats_message = f"📊 Your Fitness Challenge Statistics:\n\n"
+    def calculate_days_left(activity_streaks):
+        days_left = {}
+        for streak in activity_streaks:
+            try:
+                activity_name = streak[3]
+                days_active = streak[4]  # This is the number of days active
+                days_left[activity_name] = max(0, 100 - days_active)
+            except IndexError as e:
+                log_error(f"Error processing streak data: {streak}. Error: {str(e)}")
+        return days_left
+
+    def format_stats_message(total_activities, unique_activities, total_reps, total_duration, activity_totals, activity_streaks, days_left):
+        stats_message = "📊 Your Fitness Challenge Statistics:\n\n"
+        
+        # Overall statistics
         stats_message += f"Total activities logged: {total_activities}\n"
         stats_message += f"Unique activities: {unique_activities}\n"
-        if most_frequent:
-            stats_message += f"Most frequent activity: {most_frequent[0]} (done {most_frequent[1]} times)\n"
         stats_message += f"Total reps across all activities: {total_reps}\n"
         stats_message += f"Total duration across all activities: {format_duration(total_duration)}\n\n"
         
         stats_message += "Activity Statistics:\n"
         for activity, totals in activity_totals.items():
-            stats_message += f"{activity}:\n"
+            stats_message += f"\n{activity}:\n"
             if totals['reps'] > 0:
-                stats_message += f"  Total reps: {totals['reps']}\n"
-                stats_message += f"  Total duration: {format_duration(totals['time'])}\n"
+                stats_message += f"  • Total reps: {totals['reps']}\n"
+            if totals['time'] > 0:
+                stats_message += f"  • Total duration: {format_duration(totals['time'])}\n"
             
-            # Add streak information with correct grammatical agreement
+            if activity in days_left:
+                stats_message += f"  • Days left in challenge: {days_left[activity]}\n"
+            
             streak = next((s for s in activity_streaks if s[3] == activity), None)
             if streak:
-                days = streak[4]
-                if days == 1:
-                    streak_text = "1 day"
-                else:
-                    streak_text = f"{days} days"
-                stats_message += f"  Current streak: {streak_text}\n"
+                days_active = streak[4]
+                stats_message += f"  • Days active: {days_active}\n"
             
             last_activity = db.get_last_activity(activity)
             if last_activity:
                 nicosia_time = last_activity[2].astimezone(NICOSIA_TIMEZONE)
-                stats_message += f"  Last performed: {nicosia_time.strftime('%Y-%m-%d %H:%M:%S')}\n"
-            
-            stats_message += "\n"
+                formatted_time = nicosia_time.strftime('%b %d at %H:%M')
+                stats_message += f"  • Last performed: {formatted_time}\n"
         
         return stats_message
 
@@ -925,3 +942,52 @@ def register_handlers(bot: TeleBot):
             bot.reply_to(message, OPERATION_CANCELLED_MESSAGE, reply_markup=ReplyKeyboardRemove())
             return True
         return False
+    # Add this new command handler
+    @bot.message_handler(commands=['ranking'])
+    def show_global_ranking(message: Message):
+        if check_maintenance(message, bot):
+            return
+        
+        try:
+            ranking_data = db.get_global_ranking()
+            
+            if ranking_data:
+                table_data = []
+                headers = ["#", "Name", "Time", "Reps", "Days"]
+                
+                for rank, user_data in enumerate(ranking_data, start=1):
+                    name, total_activities, total_time, total_reps, days_active, last_active = user_data
+                    
+                    formatted_time = format_duration_short(total_time)
+                    formatted_last_active = last_active.strftime('%m-%d') if last_active else 'N/A'
+                    
+                    table_data.append([
+                        rank,
+                        name[:10],  # Limit name length to 10 characters
+                        formatted_time,
+                        total_reps,
+                        days_active
+                    ])
+                
+                table = tabulate(table_data, headers=headers, tablefmt="pipe", numalign="right")
+                response = "🏆 Global Ranking:\n\n" + table
+            else:
+                response = "No ranking data available yet."
+            
+            # Split the message if it's too long
+            max_message_length = 4096
+            messages = [response[i:i+max_message_length] for i in range(0, len(response), max_message_length)]
+            
+            for msg in messages:
+                bot.reply_to(message, f"```\n{msg}\n```", parse_mode='MarkdownV2')
+            
+            log_info(f"Global ranking displayed for user {message.from_user.id}")
+        except Exception as e:
+            log_error(f"Error in show_global_ranking: {str(e)}")
+            bot.reply_to(message, GENERAL_ERROR_MESSAGE)
+
+    # Add this new helper function at the appropriate place in your file
+    def format_duration_short(seconds):
+        hours, remainder = divmod(int(seconds), 3600)
+        minutes, _ = divmod(remainder, 60)
+        return f"{hours:02d}:{minutes:02d}"
